@@ -5,144 +5,131 @@
 
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
-#include <sys/sysctl.h>
-#include <sys/utsname.h>
 #include <unistd.h>
-#include <pwd.h>
+#include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <mach/mach.h>
 #include <dlfcn.h>
+#include <pthread.h>
+#include <cstring>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <chrono>
+#include <thread>
 
 namespace NexusForge::Platform {
 
-static bool g_initialized = false;
-
-bool PlatformAbstraction::initialize() {
-    g_initialized = true;
-    return true;
+PlatformType getCurrentPlatform() {
+    return PlatformType::macOS;
 }
 
-void PlatformAbstraction::shutdown() {
-    g_initialized = false;
-}
-
-PlatformType PlatformAbstraction::getPlatformType() {
-    return PlatformType::MacOS;
-}
-
-std::string PlatformAbstraction::getPlatformName() {
+std::string getPlatformName() {
     return "macOS";
 }
 
-std::string PlatformAbstraction::getOSVersion() {
-    struct utsname buffer;
-    uname(&buffer);
-    return std::string(buffer.release);
+bool isPlatform(PlatformType platform) {
+    return platform == PlatformType::macOS;
 }
 
-std::string PlatformAbstraction::getCPUInfo() {
-    char buffer[256];
-    size_t size = sizeof(buffer);
-    if (sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nullptr, 0) == 0) {
-        return std::string(buffer);
-    }
-    return "Unknown";
+bool initialize() {
+    return true;
 }
 
-size_t PlatformAbstraction::getTotalMemory() {
-    int mib[2] = { CTL_HW, HW_MEMSIZE };
-    uint64_t memory = 0;
-    size_t size = sizeof(memory);
-    sysctl(mib, 2, &memory, &size, nullptr, 0);
-    return memory;
+void shutdown() {
 }
 
-size_t PlatformAbstraction::getAvailableMemory() {
-    // Placeholder
-    return getTotalMemory() / 2;
+void processEvents() {
+    // macOS event processing
 }
 
-std::string PlatformAbstraction::getCurrentDirectory() {
-    char path[PATH_MAX];
-    getcwd(path, sizeof(path));
-    return std::string(path);
+void pumpEvents() {
+    processEvents();
 }
 
-bool PlatformAbstraction::setCurrentDirectory(const std::string& path) {
-    return chdir(path.c_str()) == 0;
+void* createMainWindow(int width, int height, void** nativeWindow) {
+    // macOS window creation
+    return nullptr;
 }
 
-bool PlatformAbstraction::fileExists(const std::string& path) {
-    return access(path.c_str(), F_OK) == 0;
+void* createSplashWindow(int width, int height, void** nativeWindow) {
+    return createMainWindow(width, height, nativeWindow);
 }
 
-bool PlatformAbstraction::directoryExists(const std::string& path) {
-    struct stat st;
-    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+void destroyWindow(void* window) {
 }
 
-bool PlatformAbstraction::createDirectory(const std::string& path) {
-    return mkdir(path.c_str(), 0755) == 0 || directoryExists(path);
+void showWindow(void* window) {
 }
 
-bool PlatformAbstraction::deleteFile(const std::string& path) {
-    return unlink(path.c_str()) == 0;
+void hideWindow(void* window) {
 }
 
-bool PlatformAbstraction::deleteDirectory(const std::string& path) {
-    return rmdir(path.c_str()) == 0;
+void setWindowTitle(void* window, const char* title) {
 }
 
-std::vector<std::string> PlatformAbstraction::listDirectory(const std::string& path) {
-    std::vector<std::string> entries;
-    DIR* dir = opendir(path.c_str());
-    if (dir) {
-        struct dirent* entry;
-        while ((entry = readdir(dir)) != nullptr) {
-            if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
-                entries.push_back(entry->d_name);
-            }
-        }
-        closedir(dir);
-    }
-    return entries;
+void setWindowSize(void* window, int width, int height) {
 }
 
-FileStats PlatformAbstraction::getFileStats(const std::string& path) {
-    FileStats stats = {};
-    struct stat buffer;
-    if (stat(path.c_str(), &buffer) == 0) {
-        stats.size = buffer.st_size;
-        stats.createdTime = buffer.st_ctime;
-        stats.modifiedTime = buffer.st_mtime;
-        stats.accessedTime = buffer.st_atime;
-        stats.isDirectory = S_ISDIR(buffer.st_mode);
-        stats.isFile = S_ISREG(buffer.st_mode);
-        stats.isSymlink = S_ISLNK(buffer.st_mode);
-    }
-    return stats;
+void setWindowPosition(void* window, int x, int y) {
 }
 
-std::string PlatformAbstraction::getExecutablePath() {
+void maximizeWindow(void* window) {
+}
+
+void minimizeWindow(void* window) {
+}
+
+void restoreWindow(void* window) {
+}
+
+void setWindowFullscreen(void* window, bool fullscreen) {
+}
+
+std::string getExecutablePath() {
     char path[PATH_MAX];
     uint32_t size = sizeof(path);
     if (_NSGetExecutablePath(path, &size) == 0) {
-        return std::string(path);
+        return path;
     }
     return "";
 }
 
-std::string PlatformAbstraction::getUserDataPath() {
-    const char* home = getenv("HOME");
-    if (!home) {
-        home = getpwuid(getuid())->pw_dir;
+std::string getCurrentDirectory() {
+    char path[PATH_MAX];
+    if (getcwd(path, sizeof(path))) {
+        return path;
     }
-    return std::string(home) + "/Library/Application Support/NexusForge";
+    return "";
 }
 
-std::string PlatformAbstraction::getTempPath() {
-    return std::string(NSTemporaryDirectory());
+bool setCurrentDirectory(const std::string& path) {
+    return chdir(path.c_str()) == 0;
 }
 
-std::string PlatformAbstraction::readFile(const std::string& path) {
+bool fileExists(const std::string& path) {
+    struct stat buffer;
+    return stat(path.c_str(), &buffer) == 0;
+}
+
+bool directoryExists(const std::string& path) {
+    struct stat buffer;
+    return stat(path.c_str(), &buffer) == 0 && S_ISDIR(buffer.st_mode);
+}
+
+bool createDirectory(const std::string& path) {
+    return mkdir(path.c_str(), 0755) == 0;
+}
+
+bool deleteFile(const std::string& path) {
+    return unlink(path.c_str()) == 0;
+}
+
+bool deleteDirectory(const std::string& path, bool recursive) {
+    return rmdir(path.c_str()) == 0;
+}
+
+std::string readTextFile(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open()) return "";
     std::stringstream buffer;
@@ -150,14 +137,14 @@ std::string PlatformAbstraction::readFile(const std::string& path) {
     return buffer.str();
 }
 
-bool PlatformAbstraction::writeFile(const std::string& path, const std::string& content) {
+bool writeTextFile(const std::string& path, const std::string& content) {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << content;
     return true;
 }
 
-std::vector<uint8_t> PlatformAbstraction::readBinaryFile(const std::string& path) {
+std::vector<uint8_t> readBinaryFile(const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) return {};
     std::streamsize size = file.tellg();
@@ -167,105 +154,247 @@ std::vector<uint8_t> PlatformAbstraction::readBinaryFile(const std::string& path
     return buffer;
 }
 
-bool PlatformAbstraction::writeBinaryFile(const std::string& path, const std::vector<uint8_t>& data) {
+bool writeBinaryFile(const std::string& path, const std::vector<uint8_t>& data) {
     std::ofstream file(path, std::ios::binary);
     if (!file.is_open()) return false;
     file.write(reinterpret_cast<const char*>(data.data()), data.size());
     return true;
 }
 
-WindowHandle PlatformAbstraction::createWindow(int width, int height, const std::string& title) {
-    return nullptr;
+std::string joinPath(const std::string& base, const std::string& path) {
+    if (base.empty()) return path;
+    if (path.empty()) return base;
+    if (path[0] == '/') return path;
+    if (base.back() == '/') return base + path;
+    return base + "/" + path;
 }
 
-bool PlatformAbstraction::createSplashWindow(int width, int height, WindowHandle* handle) {
-    *handle = nullptr;
+std::string getDirectoryName(const std::string& path) {
+    size_t pos = path.find_last_of('/');
+    if (pos == std::string::npos) return "";
+    return path.substr(0, pos);
+}
+
+std::string getFileName(const std::string& path) {
+    size_t pos = path.find_last_of('/');
+    if (pos == std::string::npos) return path;
+    return path.substr(pos + 1);
+}
+
+std::string getExtension(const std::string& path) {
+    size_t pos = path.find_last_of('.');
+    if (pos == std::string::npos) return "";
+    return path.substr(pos + 1);
+}
+
+std::string normalizePath(const std::string& path) {
+    std::string result = path;
+    std::replace(result.begin(), result.end(), '\\', '/');
+    return result;
+}
+
+std::string getAbsolutePath(const std::string& relativePath) {
+    if (relativePath.empty() || relativePath[0] == '/') return relativePath;
+    return joinPath(getCurrentDirectory(), relativePath);
+}
+
+std::string getRelativePath(const std::string& basePath, const std::string& path) {
+    return path;
+}
+
+std::string getEnvironmentVariable(const std::string& name) {
+    const char* value = getenv(name.c_str());
+    return value ? value : "";
+}
+
+bool setEnvironmentVariable(const std::string& name, const std::string& value) {
+    return setenv(name.c_str(), value.c_str(), 1) == 0;
+}
+
+std::string getHomeDirectory() {
+    const char* home = getenv("HOME");
+    if (home) return home;
+    return "";
+}
+
+std::string getDataDirectory() {
+    return joinPath(getHomeDirectory(), "Library/Application Support");
+}
+
+std::string getConfigDirectory() {
+    return joinPath(getHomeDirectory(), "Library/Preferences");
+}
+
+std::string getTempDirectory() {
+    return "/tmp";
+}
+
+std::string getClipboardText() {
+    return "";
+}
+
+void setClipboardText(const std::string& text) {
+}
+
+bool hasClipboardText() {
+    return false;
+}
+
+void setCursor(CursorType cursor) {
+}
+
+void showCursor() {
+}
+
+void hideCursor() {
+}
+
+bool isCursorVisible() {
     return true;
 }
 
-void PlatformAbstraction::destroyWindow(WindowHandle window) {}
-void PlatformAbstraction::setWindowTitle(WindowHandle window, const std::string& title) {}
-void PlatformAbstraction::setWindowSize(WindowHandle window, int width, int height) {}
-void PlatformAbstraction::setWindowPosition(WindowHandle window, int x, int y) {}
-void PlatformAbstraction::showWindow(WindowHandle window) {}
-void PlatformAbstraction::hideWindow(WindowHandle window) {}
-void PlatformAbstraction::maximizeWindow(WindowHandle window) {}
-void PlatformAbstraction::minimizeWindow(WindowHandle window) {}
-bool PlatformAbstraction::isWindowMaximized(WindowHandle window) { return false; }
-bool PlatformAbstraction::isWindowMinimized(WindowHandle window) { return false; }
-void* PlatformAbstraction::getNativeWindowHandle(WindowHandle window) { return window; }
+uint64_t getCurrentTimeMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+}
 
-void PlatformAbstraction::processEvents() {}
-void PlatformAbstraction::pollEvents() {}
-void PlatformAbstraction::waitEvents() {}
+double getCurrentTimeSeconds() {
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count();
+}
 
-std::string PlatformAbstraction::getClipboardText() { return ""; }
-void PlatformAbstraction::setClipboardText(const std::string& text) {}
+void sleep(int milliseconds) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+}
 
-void* PlatformAbstraction::loadLibrary(const std::string& path) {
+void* createThread(void (*func)(void*), void* arg) {
+    pthread_t* thread = new pthread_t;
+    pthread_create(thread, nullptr, (void*(*)(void*))func, arg);
+    return thread;
+}
+
+void joinThread(void* thread) {
+    if (thread) {
+        pthread_join(*reinterpret_cast<pthread_t*>(thread), nullptr);
+        delete reinterpret_cast<pthread_t*>(thread);
+    }
+}
+
+void detachThread(void* thread) {
+    if (thread) {
+        pthread_detach(*reinterpret_cast<pthread_t*>(thread));
+        delete reinterpret_cast<pthread_t*>(thread);
+    }
+}
+
+void yieldThread() {
+    std::this_thread::yield();
+}
+
+void* loadLibrary(const std::string& path) {
     return dlopen(path.c_str(), RTLD_LAZY);
 }
 
-void PlatformAbstraction::unloadLibrary(void* handle) {
+void unloadLibrary(void* handle) {
     if (handle) dlclose(handle);
 }
 
-void* PlatformAbstraction::getProcAddress(void* handle, const std::string& name) {
-    if (handle) return dlsym(handle, name.c_str());
-    return nullptr;
+void* getProcAddress(void* handle, const std::string& name) {
+    return dlsym(handle, name.c_str());
 }
 
-int PlatformAbstraction::executeCommand(const std::string& command, std::string& output) { return 0; }
-
-bool PlatformAbstraction::openFile(const std::string& path) {
-    NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
-    [[NSWorkspace sharedWorkspace] openFile:nsPath];
-    return true;
+int getCurrentProcessId() {
+    return getpid();
 }
 
-bool PlatformAbstraction::openURL(const std::string& url) {
+int getCurrentThreadId() {
+    return pthread_mach_thread_np(pthread_self());
+}
+
+bool openUrl(const std::string& url) {
     NSString* nsUrl = [NSString stringWithUTF8String:url.c_str()];
     [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:nsUrl]];
     return true;
 }
 
-std::string PlatformAbstraction::getEnvironmentVariable(const std::string& name) {
-    const char* value = getenv(name.c_str());
-    return value ? std::string(value) : "";
+bool openFile(const std::string& path) {
+    NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
+    [[NSWorkspace sharedWorkspace] openFile:nsPath];
+    return true;
 }
 
-bool PlatformAbstraction::setEnvironmentVariable(const std::string& name, const std::string& value) {
-    return setenv(name.c_str(), value.c_str(), 1) == 0;
+bool openFolder(const std::string& path) {
+    NSString* nsPath = [NSString stringWithUTF8String:path.c_str()];
+    [[NSWorkspace sharedWorkspace] openFile:nsPath withAppBundleIdentifier:nil options:0 additionalEventParamDescriptor:nil launchIdentifiers:nil];
+    return true;
 }
 
-uint64_t PlatformAbstraction::getCurrentTimeMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()
-    ).count();
+SystemInfo getSystemInfo() {
+    SystemInfo info;
+    
+    int mib[2];
+    size_t len;
+    
+    // CPU count
+    mib[0] = CTL_HW;
+    mib[1] = HW_NCPU;
+    len = sizeof(info.cpuCount);
+    sysctl(mib, 2, &info.cpuCount, &len, NULL, 0);
+    
+    // Memory
+    mib[0] = CTL_HW;
+    mib[1] = HW_MEMSIZE;
+    len = sizeof(info.totalMemory);
+    sysctl(mib, 2, &info.totalMemory, &len, NULL, 0);
+    
+    info.osVersion = "macOS";
+    info.machineName = "Mac";
+    
+    return info;
 }
 
-uint64_t PlatformAbstraction::getHighResolutionTime() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::high_resolution_clock::now().time_since_epoch()
-    ).count();
+PowerStatus getPowerStatus() {
+    return PowerStatus::AC;
 }
 
-void PlatformAbstraction::sleep(int milliseconds) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+int getBatteryLevel() {
+    return -1;
 }
 
-void PlatformAbstraction::yieldThread() { std::this_thread::yield(); }
-
-void PlatformAbstraction::log(const std::string& message) {
-    NSLog(@"[INFO] %s", message.c_str());
+void showNotification(const std::string& title, const std::string& message) {
 }
 
-void PlatformAbstraction::logError(const std::string& message) {
-    NSLog(@"[ERROR] %s", message.c_str());
+void showWarning(const std::string& title, const std::string& message) {
 }
 
-void PlatformAbstraction::logWarning(const std::string& message) {
-    NSLog(@"[WARNING] %s", message.c_str());
+void showError(const std::string& title, const std::string& message) {
+}
+
+std::string showOpenFileDialog(const std::string& title,
+                                const std::vector<std::pair<std::string, std::string>>& filters) {
+    return "";
+}
+
+std::vector<std::string> showOpenMultipleFileDialog(const std::string& title,
+                                                     const std::vector<std::pair<std::string, std::string>>& filters) {
+    return {};
+}
+
+std::string showSaveFileDialog(const std::string& title,
+                                const std::string& defaultName,
+                                const std::vector<std::pair<std::string, std::string>>& filters) {
+    return "";
+}
+
+std::string showFolderDialog(const std::string& title) {
+    return "";
+}
+
+int showMessageBox(const std::string& title, const std::string& message,
+                   MessageBoxType type, MessageBoxButtons buttons) {
+    return 0;
 }
 
 } // namespace NexusForge::Platform

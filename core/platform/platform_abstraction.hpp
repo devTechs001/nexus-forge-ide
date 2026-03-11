@@ -2,122 +2,184 @@
 #pragma once
 
 #include <string>
-#include <vector>
 #include <functional>
-#include <memory>
+#include <cstdint>
 
 namespace NexusForge::Platform {
 
-// Platform type
+// Platform detection
 enum class PlatformType {
     Windows,
     Linux,
-    MacOS,
+    macOS,
     Android,
     iOS,
-    Web,
-    Unknown
+    Web
 };
 
-// File system operations
-struct FileStats {
-    size_t size;
-    int64_t createdTime;
-    int64_t modifiedTime;
-    int64_t accessedTime;
-    bool isDirectory;
-    bool isFile;
-    bool isSymlink;
+// Get current platform
+PlatformType getCurrentPlatform();
+std::string getPlatformName();
+bool isPlatform(PlatformType platform);
+
+// Initialization
+bool initialize();
+void shutdown();
+
+// Event processing
+void processEvents();
+void pumpEvents();
+
+// Window management
+void* createMainWindow(int width, int height, void** nativeWindow);
+void* createSplashWindow(int width, int height, void** nativeWindow);
+void destroyWindow(void* window);
+void showWindow(void* window);
+void hideWindow(void* window);
+void setWindowTitle(void* window, const char* title);
+void setWindowSize(void* window, int width, int height);
+void setWindowPosition(void* window, int x, int y);
+void maximizeWindow(void* window);
+void minimizeWindow(void* window);
+void restoreWindow(void* window);
+void setWindowFullscreen(void* window, bool fullscreen);
+
+// File system
+std::string getExecutablePath();
+std::string getCurrentDirectory();
+bool setCurrentDirectory(const std::string& path);
+bool fileExists(const std::string& path);
+bool directoryExists(const std::string& path);
+bool createDirectory(const std::string& path);
+bool deleteFile(const std::string& path);
+bool deleteDirectory(const std::string& path, bool recursive);
+std::string readTextFile(const std::string& path);
+bool writeTextFile(const std::string& path, const std::string& content);
+std::vector<uint8_t> readBinaryFile(const std::string& path);
+bool writeBinaryFile(const std::string& path, const std::vector<uint8_t>& data);
+
+// Path utilities
+std::string joinPath(const std::string& base, const std::string& path);
+std::string getDirectoryName(const std::string& path);
+std::string getFileName(const std::string& path);
+std::string getExtension(const std::string& path);
+std::string normalizePath(const std::string& path);
+std::string getAbsolutePath(const std::string& relativePath);
+std::string getRelativePath(const std::string& basePath, const std::string& path);
+
+// Environment
+std::string getEnvironmentVariable(const std::string& name);
+bool setEnvironmentVariable(const std::string& name, const std::string& value);
+std::string getHomeDirectory();
+std::string getDataDirectory();
+std::string getConfigDirectory();
+std::string getTempDirectory();
+
+// Clipboard
+std::string getClipboardText();
+void setClipboardText(const std::string& text);
+bool hasClipboardText();
+
+// Cursor
+enum class CursorType {
+    Arrow,
+    IBeam,
+    Hand,
+    Crosshair,
+    ResizeH,
+    ResizeV,
+    ResizeNESW,
+    ResizeNWSE,
+    Move,
+    NotAllowed,
+    Wait,
+    Progress
+};
+void setCursor(CursorType cursor);
+void showCursor();
+void hideCursor();
+bool isCursorVisible();
+
+// Time
+uint64_t getCurrentTimeMs();
+double getCurrentTimeSeconds();
+void sleep(int milliseconds);
+
+// Threading
+void* createThread(void (*func)(void*), void* arg);
+void joinThread(void* thread);
+void detachThread(void* thread);
+void yieldThread();
+
+// Mutex
+void* createMutex();
+void lockMutex(void* mutex);
+void unlockMutex(void* mutex);
+void destroyMutex(void* mutex);
+
+// Dynamic library loading
+void* loadLibrary(const std::string& path);
+void unloadLibrary(void* handle);
+void* getProcAddress(void* handle, const std::string& name);
+
+// Process
+int getCurrentProcessId();
+int getCurrentThreadId();
+bool openUrl(const std::string& url);
+bool openFile(const std::string& path);
+bool openFolder(const std::string& path);
+
+// System info
+struct SystemInfo {
+    int cpuCount;
+    size_t totalMemory;
+    size_t availableMemory;
+    std::string osVersion;
+    std::string machineName;
+};
+SystemInfo getSystemInfo();
+
+// Power
+enum class PowerStatus {
+    Unknown,
+    Battery,
+    AC,
+    UPS
+};
+PowerStatus getPowerStatus();
+int getBatteryLevel();  // 0-100, -1 if unknown
+
+// Notifications
+void showNotification(const std::string& title, const std::string& message);
+void showWarning(const std::string& title, const std::string& message);
+void showError(const std::string& title, const std::string& message);
+
+// Dialogs
+std::string showOpenFileDialog(const std::string& title,
+                                const std::vector<std::pair<std::string, std::string>>& filters);
+std::vector<std::string> showOpenMultipleFileDialog(const std::string& title,
+                                                     const std::vector<std::pair<std::string, std::string>>& filters);
+std::string showSaveFileDialog(const std::string& title,
+                                const std::string& defaultName,
+                                const std::vector<std::pair<std::string, std::string>>& filters);
+std::string showFolderDialog(const std::string& title);
+
+enum class MessageBoxType {
+    Info,
+    Warning,
+    Error,
+    Question
 };
 
-// Window handle
-using WindowHandle = void*;
-
-// Platform abstraction layer
-class PlatformAbstraction {
-public:
-    // Initialization
-    static bool initialize();
-    static void shutdown();
-
-    // Platform info
-    static PlatformType getPlatformType();
-    static std::string getPlatformName();
-    static std::string getOSVersion();
-    static std::string getCPUInfo();
-    static size_t getTotalMemory();
-    static size_t getAvailableMemory();
-
-    // File system
-    static std::string getCurrentDirectory();
-    static bool setCurrentDirectory(const std::string& path);
-    static bool fileExists(const std::string& path);
-    static bool directoryExists(const std::string& path);
-    static bool createDirectory(const std::string& path);
-    static bool deleteFile(const std::string& path);
-    static bool deleteDirectory(const std::string& path);
-    static std::vector<std::string> listDirectory(const std::string& path);
-    static FileStats getFileStats(const std::string& path);
-    static std::string getExecutablePath();
-    static std::string getUserDataPath();
-    static std::string getTempPath();
-
-    // File I/O
-    static std::string readFile(const std::string& path);
-    static bool writeFile(const std::string& path, const std::string& content);
-    static std::vector<uint8_t> readBinaryFile(const std::string& path);
-    static bool writeBinaryFile(const std::string& path, const std::vector<uint8_t>& data);
-
-    // Window management
-    static WindowHandle createWindow(int width, int height, const std::string& title);
-    static bool createSplashWindow(int width, int height, WindowHandle* handle);
-    static void destroyWindow(WindowHandle window);
-    static void setWindowTitle(WindowHandle window, const std::string& title);
-    static void setWindowSize(WindowHandle window, int width, int height);
-    static void setWindowPosition(WindowHandle window, int x, int y);
-    static void showWindow(WindowHandle window);
-    static void hideWindow(WindowHandle window);
-    static void maximizeWindow(WindowHandle window);
-    static void minimizeWindow(WindowHandle window);
-    static bool isWindowMaximized(WindowHandle window);
-    static bool isWindowMinimized(WindowHandle window);
-    static void* getNativeWindowHandle(WindowHandle window);
-
-    // Event processing
-    static void processEvents();
-    static void pollEvents();
-    static void waitEvents();
-
-    // Clipboard
-    static std::string getClipboardText();
-    static void setClipboardText(const std::string& text);
-
-    // Dynamic library loading
-    static void* loadLibrary(const std::string& path);
-    static void unloadLibrary(void* handle);
-    static void* getProcAddress(void* handle, const std::string& name);
-
-    // Process
-    static int executeCommand(const std::string& command, std::string& output);
-    static bool openFile(const std::string& path);
-    static bool openURL(const std::string& url);
-
-    // Environment
-    static std::string getEnvironmentVariable(const std::string& name);
-    static bool setEnvironmentVariable(const std::string& name, const std::string& value);
-
-    // Time
-    static uint64_t getCurrentTimeMs();
-    static uint64_t getHighResolutionTime();
-
-    // Threading
-    static void sleep(int milliseconds);
-    static void yieldThread();
-
-    // Logging
-    static void log(const std::string& message);
-    static void logError(const std::string& message);
-    static void logWarning(const std::string& message);
+enum class MessageBoxButtons {
+    OK,
+    OKCancel,
+    YesNo,
+    YesNoCancel
 };
+
+int showMessageBox(const std::string& title, const std::string& message,
+                   MessageBoxType type = MessageBoxType::Info,
+                   MessageBoxButtons buttons = MessageBoxButtons::OK);
 
 } // namespace NexusForge::Platform
