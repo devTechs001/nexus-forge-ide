@@ -168,49 +168,6 @@ cmake --install .
 
 ---
 
-## 📁 Project Structure
-
-```
-NexusForge/
-├── core/                    # Core engine components
-│   ├── engine/             # Engine, memory, threads, events, plugins
-│   ├── platform/           # Platform abstraction layer
-│   ├── asm/                # SIMD optimizations (AVX2, SSE)
-│   └── jni/                # Android JNI bridge
-├── ui/                      # User interface
-│   ├── framework/          # Widget system, layout, animation, themes
-│   ├── renderer/           # Render engine and backends
-│   ├── widgets/            # UI components
-│   ├── screens/            # Main window, splash screen
-│   └── mobile/             # Mobile-specific components
-├── editor/                  # Editor functionality
-│   ├── buffer/             # Text buffer implementations
-│   ├── syntax/             # Syntax highlighting
-│   ├── intellisense/       # LSP, completions
-│   └── features/           # Editor features
-├── ai/                      # AI integration
-│   ├── models/             # Model management
-│   ├── features/           # AI features
-│   └── providers/          # AI providers
-├── extensions/              # Extension system
-│   ├── api/                # Extension API
-│   └── marketplace/        # Extension marketplace
-├── workspace/               # Workspace management
-├── debugger/                # Debugging support
-├── terminal/                # Terminal emulation
-├── networking/              # Network features
-├── config/                  # Configuration management
-├── resources/               # Assets and resources
-├── tests/                   # Unit tests
-├── docs/                    # Documentation
-├── CMakeLists.txt          # Build configuration
-├── Cargo.toml              # Rust components
-├── build.gradle            # Android build
-└── Package.swift           # iOS build
-```
-
----
-
 ## 🎯 Architecture
 
 ### Core Engine
