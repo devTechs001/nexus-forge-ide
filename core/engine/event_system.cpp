@@ -12,28 +12,37 @@ EventSystem::~EventSystem() {
 }
 
 bool EventSystem::initialize() {
+    // Reserve space for common event types
+    handlers_.reserve(32);
     return true;
 }
 
 void EventSystem::shutdown() {
-    std::lock_guard<std::mutex> lock(handlerMutex_);
-    handlers_.clear();
-    eventQueue_.swap(std::queue<std::unique_ptr<Event>>());
+    std::lock_guard<std::mutex> lock(queueMutex_);
+    eventQueue_ = std::queue<std::unique_ptr<Event>>();
     deferredEvents_.clear();
 }
 
 void EventSystem::dispatch(Event& event) {
     std::lock_guard<std::mutex> lock(handlerMutex_);
-    
+
+    auto it = handlers_.find(event.getType());
+    if (it == handlers_.end()) {
+        return;
+    }
+
+    // Set timestamp
     event.timestamp = std::chrono::duration<double>(
         std::chrono::steady_clock::now().time_since_epoch()
     ).count();
-    
-    auto it = handlers_.find(event.getType());
-    if (it != handlers_.end()) {
-        for (auto& entry : it->second) {
-            if (event.handled) break;
-            event.handled = entry.handler(event);
+
+    // Call handlers in priority order
+    for (auto& entry : it->second) {
+        if (event.handled) break;
+        try {
+            entry.handler(event);
+        } catch (const std::exception& e) {
+            // Log exception
         }
     }
 }
@@ -49,24 +58,23 @@ void EventSystem::queueEvent(std::unique_ptr<Event> event) {
 
 void EventSystem::processEvents() {
     std::queue<std::unique_ptr<Event>> localQueue;
-    
+
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
-        eventQueue_.swap(localQueue);
+        std::swap(localQueue, eventQueue_);
     }
-    
+
     while (!localQueue.empty()) {
-        Event* event = localQueue.front().get();
-        dispatch(*event);
+        dispatch(*localQueue.front());
         localQueue.pop();
     }
-    
+
     // Process deferred events
-    updateDeferred(0.016);  // Assume ~60fps
+    updateDeferred(0.016); // Assume ~60fps
 }
 
 void EventSystem::deferEvent(std::unique_ptr<Event> event, double delay) {
-    std::lock_guard<std::mutex> lock(handlerMutex_);
+    std::lock_guard<std::mutex> lock(queueMutex_);
     deferredEvents_.push_back({
         std::move(event),
         delay
@@ -74,12 +82,12 @@ void EventSystem::deferEvent(std::unique_ptr<Event> event, double delay) {
 }
 
 void EventSystem::updateDeferred(double deltaTime) {
-    std::lock_guard<std::mutex> lock(handlerMutex_);
-    
+    std::lock_guard<std::mutex> lock(queueMutex_);
+
     for (auto it = deferredEvents_.begin(); it != deferredEvents_.end();) {
         it->remainingTime -= deltaTime;
         if (it->remainingTime <= 0) {
-            dispatch(*it->event);
+            eventQueue_.push(std::move(it->event));
             it = deferredEvents_.erase(it);
         } else {
             ++it;
@@ -89,15 +97,17 @@ void EventSystem::updateDeferred(double deltaTime) {
 
 void EventSystem::unsubscribe(size_t handlerId) {
     std::lock_guard<std::mutex> lock(handlerMutex_);
-    
+
     for (auto& [type, handlers] : handlers_) {
-        handlers.erase(
-            std::remove_if(handlers.begin(), handlers.end(),
-                [handlerId](const HandlerEntry& entry) {
-                    return entry.id == handlerId;
-                }),
-            handlers.end()
-        );
+        auto it = std::find_if(handlers.begin(), handlers.end(),
+            [handlerId](const HandlerEntry& entry) {
+                return entry.id == handlerId;
+            });
+
+        if (it != handlers.end()) {
+            handlers.erase(it);
+            return;
+        }
     }
 }
 

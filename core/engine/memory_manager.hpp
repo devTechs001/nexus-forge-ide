@@ -140,7 +140,7 @@ private:
     size_t totalMemory_;
     std::atomic<size_t> usedMemory_;
     std::atomic<size_t> peakMemory_;
-    std::atomic<size_t> allocationCount_;
+    std::atomic<size_t> allocationCount_{0};
 
     std::unique_ptr<ArenaAllocator> frameArena_;
 
