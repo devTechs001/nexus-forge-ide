@@ -3,22 +3,22 @@
 
 #include <string>
 #include <vector>
-#include <memory>
 #include <unordered_map>
 #include <functional>
+#include <memory>
 
 namespace NexusForge::Core {
 
-// Forward declaration
-class NexusEngine;
-
-// Plugin information
+// Plugin info
 struct PluginInfo {
     std::string id;
     std::string name;
     std::string version;
     std::string description;
     std::string author;
+    std::string path;
+    bool loaded = false;
+    bool enabled = true;
     std::vector<std::string> dependencies;
 };
 
@@ -26,9 +26,8 @@ struct PluginInfo {
 class IPlugin {
 public:
     virtual ~IPlugin() = default;
-    virtual bool initialize(NexusEngine* engine) = 0;
+    virtual bool initialize() = 0;
     virtual void shutdown() = 0;
-    virtual void update(double deltaTime) = 0;
     virtual const PluginInfo& getInfo() const = 0;
 };
 
@@ -38,35 +37,50 @@ public:
     PluginLoader();
     ~PluginLoader();
 
-    bool initialize(const std::string& pluginsPath);
-    void shutdown();
-
-    // Load/unload plugins
+    // Plugin management
     bool loadPlugin(const std::string& path);
-    bool unloadPlugin(const std::string& pluginId);
-    bool reloadPlugin(const std::string& pluginId);
+    bool unloadPlugin(const std::string& id);
+    bool enablePlugin(const std::string& id);
+    bool disablePlugin(const std::string& id);
 
-    // Plugin access
-    IPlugin* getPlugin(const std::string& pluginId);
+    // Access
+    IPlugin* getPlugin(const std::string& id);
+    const PluginInfo* getPluginInfo(const std::string& id) const;
     std::vector<std::string> getLoadedPlugins() const;
+    std::vector<std::string> getEnabledPlugins() const;
 
-    // Plugin discovery
-    std::vector<std::string> discoverPlugins(const std::string& path);
+    // Plugin directory
+    void setPluginDirectory(const std::string& path);
+    const std::string& getPluginDirectory() const { return pluginDir_; }
+
+    // Scan and load
+    void scanPlugins();
+    void loadAllPlugins();
+    void unloadAllPlugins();
+
+    // Events
+    using PluginCallback = std::function<void(const std::string&)>;
+    void addPluginLoadedCallback(PluginCallback callback);
+    void addPluginUnloadedCallback(PluginCallback callback);
 
 private:
-    struct LoadedPlugin {
-        void* handle;
-        std::unique_ptr<IPlugin> plugin;
-        PluginInfo info;
-        std::string path;
-    };
+    std::string pluginDir_;
+    std::unordered_map<std::string, PluginInfo> plugins_;
+    std::unordered_map<std::string, std::unique_ptr<IPlugin>> instances_;
+    std::unordered_map<std::string, void*> handles_;
 
-    std::string pluginsPath_;
-    std::unordered_map<std::string, LoadedPlugin> plugins_;
+    std::vector<PluginCallback> loadedCallbacks_;
+    std::vector<PluginCallback> unloadedCallbacks_;
 
-    void* loadLibrary(const std::string& path);
-    void unloadLibrary(void* handle);
-    IPlugin* createPlugin(void* handle);
+    IPlugin* createPluginInstance(void* handle);
+    bool checkDependencies(const PluginInfo& info);
+    void notifyLoaded(const std::string& id);
+    void notifyUnloaded(const std::string& id);
 };
+
+// Plugin registration macro
+#define NEXUS_PLUGIN_EXPORT \
+    extern "C" __declspec(dllexport) NexusForge::Core::IPlugin* createPlugin(); \
+    extern "C" __declspec(dllexport) void destroyPlugin(NexusForge::Core::IPlugin* plugin);
 
 } // namespace NexusForge::Core
