@@ -1,0 +1,89 @@
+# Cargo.toml - Rust Components for NexusForge IDE
+[package]
+name = "nexusforge_core"
+version = "1.0.0"
+edition = "2021"
+authors = ["NexusForge Team"]
+description = "Core Rust components for NexusForge IDE"
+license = "MIT"
+
+[lib]
+name = "nexusforge_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Memory management
+jemallocator = "0.5"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Text processing
+ropey = "1.6"
+unicode-segmentation = "1.10"
+
+# LSP support
+lsp-types = "0.94"
+tower-lsp = "0.20"
+
+# Tree-sitter bindings
+tree-sitter = "0.20"
+tree-sitter-cpp = "0.20"
+tree-sitter-rust = "0.20"
+tree-sitter-typescript = "0.20"
+
+# Cryptography
+ring = "0.17"
+
+# Compression
+flate2 = "1.0"
+zip = "0.6"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# WebSockets
+tokio-tungstenite = "0.20"
+
+# FFI for C++ interop
+cxx = "1.0"
+
+[dependencies.cxxbridge-macro]
+version = "1.0"
+
+[build-dependencies]
+cxx-build = "1.0"
+
+[features]
+default = ["full"]
+full = ["ai", "lsp", "git"]
+ai = []
+lsp = []
+git = ["git2"]
+
+# Optional git support
+[dependencies.git2]
+version = "0.18"
+optional = true
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[profile.dev]
+opt-level = 0
+debug = true
