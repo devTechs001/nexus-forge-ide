@@ -5,124 +5,128 @@
 
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
+#include <GLES3/gl3.h>
+#include <cstring>
 #include <fstream>
 #include <sstream>
-#include <iostream>
+#include <algorithm>
 
 namespace NexusForge::Platform {
 
-static bool g_initialized = false;
-
-bool PlatformAbstraction::initialize() {
-    g_initialized = true;
-    return true;
-}
-
-void PlatformAbstraction::shutdown() {
-    g_initialized = false;
-}
-
-PlatformType PlatformAbstraction::getPlatformType() {
+PlatformType getCurrentPlatform() {
     return PlatformType::Web;
 }
 
-std::string PlatformAbstraction::getPlatformName() {
+std::string getPlatformName() {
     return "Web (Emscripten)";
 }
 
-std::string PlatformAbstraction::getOSVersion() {
-    return "WebAssembly";
+bool isPlatform(PlatformType platform) {
+    return platform == PlatformType::Web;
 }
 
-std::string PlatformAbstraction::getCPUInfo() {
-    return "WebAssembly";
+bool initialize() {
+    return true;
 }
 
-size_t PlatformAbstraction::getTotalMemory() {
-    return emscripten_get_heap_max();
+void shutdown() {
 }
 
-size_t PlatformAbstraction::getAvailableMemory() {
-    return emscripten_get_heap_size() - emscripten_get_heap_max() / 2;
+void processEvents() {
+    emscripten_main_loop();
 }
 
-std::string PlatformAbstraction::getCurrentDirectory() {
+void pumpEvents() {
+    processEvents();
+}
+
+void* createMainWindow(int width, int height, void** nativeWindow) {
+    // Web canvas is created by Emscripten
+    return (void*)1;
+}
+
+void* createSplashWindow(int width, int height, void** nativeWindow) {
+    return createMainWindow(width, height, nativeWindow);
+}
+
+void destroyWindow(void* window) {
+}
+
+void showWindow(void* window) {
+}
+
+void hideWindow(void* window) {
+}
+
+void setWindowTitle(void* window, const char* title) {
+    emscripten_set_window_title(title);
+}
+
+void setWindowSize(void* window, int width, int height) {
+    emscripten_set_canvas_element_size("#canvas", width, height);
+}
+
+void setWindowPosition(void* window, int x, int y) {
+    // Not applicable for web
+}
+
+void maximizeWindow(void* window) {
+    // Fullscreen via Emscripten
+    EmscriptenFullscreenStrategy strategy = {};
+    strategy.scaleMode = EMSCRIPTEN_FULLSCREEN_SCALE_STRETCH;
+    emscripten_request_fullscreen_strategy("#canvas", 1, &strategy);
+}
+
+void minimizeWindow(void* window) {
+}
+
+void restoreWindow(void* window) {
+    emscripten_exit_fullscreen();
+}
+
+void setWindowFullscreen(void* window, bool fullscreen) {
+    if (fullscreen) {
+        emscripten_request_fullscreen("#canvas", 1);
+    } else {
+        emscripten_exit_fullscreen();
+    }
+}
+
+std::string getExecutablePath() {
+    return "";
+}
+
+std::string getCurrentDirectory() {
     return "/";
 }
 
-bool PlatformAbstraction::setCurrentDirectory(const std::string& path) {
-    return true;
+bool setCurrentDirectory(const std::string& path) {
+    return emscripten_chdir(path.c_str()) == 0;
 }
 
-bool PlatformAbstraction::fileExists(const std::string& path) {
-    EM_ASM({
-        return FS.analyzePath(UTF8ToString($0)).exists ? 1 : 0;
-    }, path.c_str());
-    return false;
+bool fileExists(const std::string& path) {
+    struct stat buffer;
+    return stat(path.c_str(), &buffer) == 0;
 }
 
-bool PlatformAbstraction::directoryExists(const std::string& path) {
-    return EM_ASM_INT({
-        try {
-            return FS.analyzePath(UTF8ToString($0)).object.node.isFolder ? 1 : 0;
-        } catch(e) {
-            return 0;
-        }
-    }, path.c_str());
+bool directoryExists(const std::string& path) {
+    struct stat buffer;
+    return stat(path.c_str(), &buffer) == 0 && S_ISDIR(buffer.st_mode);
 }
 
-bool PlatformAbstraction::createDirectory(const std::string& path) {
-    EM_ASM({
-        try {
-            FS.mkdir(UTF8ToString($0));
-        } catch(e) {}
-    }, path.c_str());
-    return true;
+bool createDirectory(const std::string& path) {
+    return emscripten_mkdir(path.c_str(), 0755) == 0;
 }
 
-bool PlatformAbstraction::deleteFile(const std::string& path) {
-    EM_ASM({
-        try {
-            FS.unlink(UTF8ToString($0));
-        } catch(e) {}
-    }, path.c_str());
-    return true;
+bool deleteFile(const std::string& path) {
+    return emscripten_unlink(path.c_str()) == 0;
 }
 
-bool PlatformAbstraction::deleteDirectory(const std::string& path) {
-    EM_ASM({
-        try {
-            FS.rmdir(UTF8ToString($0));
-        } catch(e) {}
-    }, path.c_str());
-    return true;
+bool deleteDirectory(const std::string& path, bool recursive) {
+    return emscripten_rmdir(path.c_str()) == 0;
 }
 
-std::vector<std::string> PlatformAbstraction::listDirectory(const std::string& path) {
-    std::vector<std::string> entries;
-    // Web implementation would use Emscripten FS APIs
-    return entries;
-}
-
-FileStats PlatformAbstraction::getFileStats(const std::string& path) {
-    FileStats stats = {};
-    // Web implementation would use Emscripten FS APIs
-    return stats;
-}
-
-std::string PlatformAbstraction::getExecutablePath() {
-    return "/nexusforge.wasm";
-}
-
-std::string PlatformAbstraction::getUserDataPath() {
-    return "/home/web_user/nexusforge";
-}
-
-std::string PlatformAbstraction::getTempPath() {
-    return "/tmp";
-}
-
-std::string PlatformAbstraction::readFile(const std::string& path) {
+std::string readTextFile(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open()) return "";
     std::stringstream buffer;
@@ -130,14 +134,14 @@ std::string PlatformAbstraction::readFile(const std::string& path) {
     return buffer.str();
 }
 
-bool PlatformAbstraction::writeFile(const std::string& path, const std::string& content) {
+bool writeTextFile(const std::string& path, const std::string& content) {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << content;
     return true;
 }
 
-std::vector<uint8_t> PlatformAbstraction::readBinaryFile(const std::string& path) {
+std::vector<uint8_t> readBinaryFile(const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) return {};
     std::streamsize size = file.tellg();
@@ -147,119 +151,230 @@ std::vector<uint8_t> PlatformAbstraction::readBinaryFile(const std::string& path
     return buffer;
 }
 
-bool PlatformAbstraction::writeBinaryFile(const std::string& path, const std::vector<uint8_t>& data) {
+bool writeBinaryFile(const std::string& path, const std::vector<uint8_t>& data) {
     std::ofstream file(path, std::ios::binary);
     if (!file.is_open()) return false;
     file.write(reinterpret_cast<const char*>(data.data()), data.size());
     return true;
 }
 
-WindowHandle PlatformAbstraction::createWindow(int width, int height, const std::string& title) {
-    return nullptr;
+std::string joinPath(const std::string& base, const std::string& path) {
+    if (base.empty()) return path;
+    if (path.empty()) return base;
+    if (path[0] == '/') return path;
+    if (base.back() == '/') return base + path;
+    return base + "/" + path;
 }
 
-bool PlatformAbstraction::createSplashWindow(int width, int height, WindowHandle* handle) {
-    *handle = nullptr;
-    return true;
+std::string getDirectoryName(const std::string& path) {
+    size_t pos = path.find_last_of('/');
+    if (pos == std::string::npos) return "";
+    return path.substr(0, pos);
 }
 
-void PlatformAbstraction::destroyWindow(WindowHandle window) {}
-void PlatformAbstraction::setWindowTitle(WindowHandle window, const std::string& title) {
-    EM_ASM({
-        document.title = UTF8ToString($0);
-    }, title.c_str());
+std::string getFileName(const std::string& path) {
+    size_t pos = path.find_last_of('/');
+    if (pos == std::string::npos) return path;
+    return path.substr(pos + 1);
 }
 
-void PlatformAbstraction::setWindowSize(WindowHandle window, int width, int height) {}
-void PlatformAbstraction::setWindowPosition(WindowHandle window, int x, int y) {}
-void PlatformAbstraction::showWindow(WindowHandle window) {}
-void PlatformAbstraction::hideWindow(WindowHandle window) {}
-void PlatformAbstraction::maximizeWindow(WindowHandle window) {}
-void PlatformAbstraction::minimizeWindow(WindowHandle window) {}
-bool PlatformAbstraction::isWindowMaximized(WindowHandle window) { return false; }
-bool PlatformAbstraction::isWindowMinimized(WindowHandle window) { return false; }
-void* PlatformAbstraction::getNativeWindowHandle(WindowHandle window) { return window; }
+std::string getExtension(const std::string& path) {
+    size_t pos = path.find_last_of('.');
+    if (pos == std::string::npos) return "";
+    return path.substr(pos + 1);
+}
 
-void PlatformAbstraction::processEvents() {}
-void PlatformAbstraction::pollEvents() {}
-void PlatformAbstraction::waitEvents() {}
+std::string normalizePath(const std::string& path) {
+    std::string result = path;
+    std::replace(result.begin(), result.end(), '\\', '/');
+    return result;
+}
 
-std::string PlatformAbstraction::getClipboardText() {
-    // Web clipboard API would be used here
+std::string getAbsolutePath(const std::string& relativePath) {
+    if (relativePath.empty() || relativePath[0] == '/') return relativePath;
+    return joinPath(getCurrentDirectory(), relativePath);
+}
+
+std::string getRelativePath(const std::string& basePath, const std::string& path) {
+    return path;
+}
+
+std::string getEnvironmentVariable(const std::string& name) {
     return "";
 }
 
-void PlatformAbstraction::setClipboardText(const std::string& text) {
+bool setEnvironmentVariable(const std::string& name, const std::string& value) {
+    return false;
+}
+
+std::string getHomeDirectory() {
+    return "/home/web_user";
+}
+
+std::string getDataDirectory() {
+    return "/data";
+}
+
+std::string getConfigDirectory() {
+    return "/config";
+}
+
+std::string getTempDirectory() {
+    return "/tmp";
+}
+
+std::string getClipboardText() {
+    // Web clipboard via JavaScript
+    return "";
+}
+
+void setClipboardText(const std::string& text) {
     EM_ASM({
         navigator.clipboard.writeText(UTF8ToString($0));
     }, text.c_str());
 }
 
-void* PlatformAbstraction::loadLibrary(const std::string& path) {
-    // WebAssembly doesn't support dynamic loading in the traditional sense
-    return nullptr;
-}
-
-void PlatformAbstraction::unloadLibrary(void* handle) {}
-
-void* PlatformAbstraction::getProcAddress(void* handle, const std::string& name) {
-    return nullptr;
-}
-
-int PlatformAbstraction::executeCommand(const std::string& command, std::string& output) {
-    return 0;
-}
-
-bool PlatformAbstraction::openFile(const std::string& path) {
+bool hasClipboardText() {
     return false;
 }
 
-bool PlatformAbstraction::openURL(const std::string& url) {
+void setCursor(CursorType cursor) {
+    // Web cursor via CSS
+}
+
+void showCursor() {
+    EM_ASM(document.body.style.cursor = 'default');
+}
+
+void hideCursor() {
+    EM_ASM(document.body.style.cursor = 'none');
+}
+
+bool isCursorVisible() {
+    return true;
+}
+
+uint64_t getCurrentTimeMs() {
+    return emscripten_get_now();
+}
+
+double getCurrentTimeSeconds() {
+    return emscripten_get_now() / 1000.0;
+}
+
+void sleep(int milliseconds) {
+    emscripten_sleep(milliseconds);
+}
+
+void* createThread(void (*func)(void*), void* arg) {
+    // Web threading via Web Workers
+    return nullptr;
+}
+
+void joinThread(void* thread) {
+}
+
+void detachThread(void* thread) {
+}
+
+void yieldThread() {
+    emscripten_yield();
+}
+
+void* loadLibrary(const std::string& path) {
+    return nullptr;
+}
+
+void unloadLibrary(void* handle) {
+}
+
+void* getProcAddress(void* handle, const std::string& name) {
+    return nullptr;
+}
+
+int getCurrentProcessId() {
+    return 1;
+}
+
+int getCurrentThreadId() {
+    return 1;
+}
+
+bool openUrl(const std::string& url) {
     EM_ASM({
         window.open(UTF8ToString($0), '_blank');
     }, url.c_str());
     return true;
 }
 
-std::string PlatformAbstraction::getEnvironmentVariable(const std::string& name) {
-    // Web environment variables are limited
-    return "";
-}
-
-bool PlatformAbstraction::setEnvironmentVariable(const std::string& name, const std::string& value) {
+bool openFile(const std::string& path) {
     return false;
 }
 
-uint64_t PlatformAbstraction::getCurrentTimeMs() {
-    return emscripten_get_now();
+bool openFolder(const std::string& path) {
+    return false;
 }
 
-uint64_t PlatformAbstraction::getHighResolutionTime() {
-    return emscripten_get_now() * 1000000;
+SystemInfo getSystemInfo() {
+    SystemInfo info;
+    info.cpuCount = navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
+    info.osVersion = "Web";
+    info.machineName = "Web Browser";
+    return info;
 }
 
-void PlatformAbstraction::sleep(int milliseconds) {
-    emscripten_sleep(milliseconds);
+PowerStatus getPowerStatus() {
+    return PowerStatus::Unknown;
 }
 
-void PlatformAbstraction::yieldThread() {}
+int getBatteryLevel() {
+    return -1;
+}
 
-void PlatformAbstraction::log(const std::string& message) {
+void showNotification(const std::string& title, const std::string& message) {
     EM_ASM({
-        console.log("[INFO] " + UTF8ToString($0));
-    }, message.c_str());
+        if (Notification.permission === 'granted') {
+            new Notification(UTF8ToString($0), { body: UTF8ToString($1) });
+        }
+    }, title.c_str(), message.c_str());
 }
 
-void PlatformAbstraction::logError(const std::string& message) {
-    EM_ASM({
-        console.error("[ERROR] " + UTF8ToString($0));
-    }, message.c_str());
+void showWarning(const std::string& title, const std::string& message) {
+    showNotification(title, message);
 }
 
-void PlatformAbstraction::logWarning(const std::string& message) {
+void showError(const std::string& title, const std::string& message) {
+    showNotification(title, message);
+}
+
+std::string showOpenFileDialog(const std::string& title,
+                                const std::vector<std::pair<std::string, std::string>>& filters) {
+    // Web file input
+    return "";
+}
+
+std::vector<std::string> showOpenMultipleFileDialog(const std::string& title,
+                                                     const std::vector<std::pair<std::string, std::string>>& filters) {
+    return {};
+}
+
+std::string showSaveFileDialog(const std::string& title,
+                                const std::string& defaultName,
+                                const std::vector<std::pair<std::string, std::string>>& filters) {
+    return "";
+}
+
+std::string showFolderDialog(const std::string& title) {
+    return "";
+}
+
+int showMessageBox(const std::string& title, const std::string& message,
+                   MessageBoxType type, MessageBoxButtons buttons) {
+    // Web alert
     EM_ASM({
-        console.warn("[WARNING] " + UTF8ToString($0));
-    }, message.c_str());
+        alert(UTF8ToString($0) + '\n\n' + UTF8ToString($1));
+    }, title.c_str(), message.c_str());
+    return 0;
 }
 
 } // namespace NexusForge::Platform
