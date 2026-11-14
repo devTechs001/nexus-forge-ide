@@ -10,14 +10,15 @@
 #include "config/settings_manager.hpp"
 #include "ai/models/model_manager.hpp"
 
-#include <iostream>
-#include <memory>
-#include <thread>
-#include <future>
+#include <chrono>
 #include <csignal>
 #include <exception>
 #include <functional>
+#include <future>
+#include <iostream>
+#include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 // Platform-specific entry points
@@ -55,6 +56,14 @@
 #endif
 
 namespace NexusForge {
+
+namespace {
+volatile std::sig_atomic_t g_signalQuit = 0;
+
+void handleTerminationSignal(int) {
+    g_signalQuit = 1;
+}
+} // anonymous namespace
 
 // Application Version Information
 constexpr const char* APP_NAME = "NexusForge IDE";
@@ -143,6 +152,7 @@ private:
     bool restoreWorkspace();
 
     std::unique_ptr<Core::NexusEngine> engine_;
+    std::unique_ptr<UI::SplashScreen> splashScreen_;
     std::unique_ptr<UI::MainWindow> mainWindow_;
     std::unique_ptr<Config::SettingsManager> settings_;
     std::unique_ptr<AI::ModelManager> aiManager_;
@@ -157,22 +167,39 @@ NexusForgeApp::~NexusForgeApp() {
 }
 
 int NexusForgeApp::run(int argc, char* argv[]) {
+    g_signalQuit = 0;
+    std::signal(SIGINT, handleTerminationSignal);
+    std::signal(SIGTERM, handleTerminationSignal);
+
     // Parse command line arguments
     commandLineArgs_.clear();
+    bool skipSplash = false;
+    std::vector<std::string> filesToOpen;
+
     for (int i = 0; i < argc; ++i) {
         std::string arg = argv[i] ? argv[i] : "";
         commandLineArgs_.push_back(arg);
-        if (i > 0 && (arg == "--version" || arg == "-v")) {
+        if (i == 0) continue;
+
+        if (arg == "--version" || arg == "-v") {
             std::cout << APP_NAME << " " << APP_VERSION
                       << " (" << APP_CODENAME << ", build " << APP_BUILD << ")" << std::endl;
             return 0;
         }
-        if (i > 0 && (arg == "--help" || arg == "-h")) {
+        if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: NexusForge [options] [files...]\n"
                       << "Options:\n"
                       << "  -h, --help       Show this help message and exit\n"
-                      << "  -v, --version    Show version information and exit\n";
+                      << "  -v, --version    Show version information and exit\n"
+                      << "      --no-splash  Skip the startup splash screen\n";
             return 0;
+        }
+        if (arg == "--no-splash") {
+            skipSplash = true;
+            continue;
+        }
+        if (!arg.empty() && arg[0] != '-') {
+            filesToOpen.push_back(arg);
         }
     }
 
@@ -185,15 +212,109 @@ int NexusForgeApp::run(int argc, char* argv[]) {
         }
         startupManager_.notifyProgress(StartupPhase::PlatformInit, 1.0f);
 
+        const bool hasGui = Platform::PlatformAbstraction::hasGraphicalDisplay();
+
+        // Print concise startup banner to console as well
+        std::cout << "\n=============================================\n"
+                  << "  " << APP_NAME << " " << APP_VERSION << " (" << APP_CODENAME << ")\n"
+                  << "  Code Without Boundaries\n"
+                  << "=============================================\n";
+        if (hasGui) {
+            std::cout << "[splash] Opening splash screen..." << std::endl;
+        } else {
+            std::cout << "[info]   No graphical X11 display detected (DISPLAY unset); running in console mode." << std::endl;
+        }
+
+        // Launch Splash Screen immediately before heavier subsystems initialize
+        auto lastSplashTick = std::chrono::steady_clock::now();
+        auto pumpSplash = [&](int durationMs) {
+            if (!splashScreen_ || !splashScreen_->isVisible()) return;
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(durationMs);
+            do {
+                if (g_signalQuit || splashScreen_->isCloseRequested()) break;
+                auto now = std::chrono::steady_clock::now();
+                double dt = std::chrono::duration<double>(now - lastSplashTick).count();
+                lastSplashTick = now;
+                Platform::PlatformAbstraction::processEvents();
+                splashScreen_->update(dt);
+                splashScreen_->render();
+                if (durationMs > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                }
+            } while (std::chrono::steady_clock::now() < deadline);
+        };
+
+        auto setSplashStage = [&](float progress, const std::string& phase, const std::string& msg) {
+            std::cout << "[boot " << static_cast<int>(progress * 100.0f) << "%] "
+                      << phase << " - " << msg << std::endl;
+            if (splashScreen_) {
+                splashScreen_->setPhase(phase);
+                splashScreen_->setProgress(progress, msg);
+                pumpSplash(hasGui ? 360 : 0);
+            }
+        };
+
+        if (!skipSplash) {
+            splashScreen_ = std::make_unique<UI::SplashScreen>();
+            if (splashScreen_->initialize(nullptr)) {
+                splashScreen_->setMinimumDisplayTime(hasGui ? 2.4f : 0.1f);
+                splashScreen_->show();
+                setSplashStage(0.12f, "Initializing Platform",
+                               hasGui ? "Connected to native display server" : "Console runtime initialized");
+            } else {
+                splashScreen_.reset();
+            }
+        }
+
+        if (g_signalQuit) {
+            shutdown();
+            return 0;
+        }
+
         // Phase 2: Core Engine Initialization
         startupManager_.notifyProgress(StartupPhase::CoreInit, 0.0f);
+        setSplashStage(0.28f, "Starting Core Engine",
+                       "Initializing memory manager, thread pool & event bus");
         if (!initializeCore()) {
             std::cerr << "Failed to initialize core engine" << std::endl;
             return -2;
         }
         startupManager_.notifyProgress(StartupPhase::CoreInit, 1.0f);
 
-        // Phase 3: UI Initialization (Show Splash Screen)
+        // Phase 3: Load Extensions & AI Models asynchronously while animating Splash Screen
+        startupManager_.notifyProgress(StartupPhase::ExtensionsLoad, 0.0f);
+        if (splashScreen_) {
+            splashScreen_->setPhase("Loading Extensions & AI Assistant");
+            splashScreen_->setProgress(0.54f, "Scanning plugins & initializing Phoenix AI models");
+        }
+        std::cout << "[boot 54%] Loading Extensions & Phoenix AI..." << std::endl;
+
+        auto extensionsFuture = std::async(std::launch::async, [this]() {
+            return loadExtensions();
+        });
+
+        startupManager_.notifyProgress(StartupPhase::AIModelsLoad, 0.0f);
+        auto aiModelsFuture = std::async(std::launch::async, [this]() {
+            return loadAIModels();
+        });
+
+        while ((extensionsFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready ||
+                aiModelsFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) &&
+               !g_signalQuit) {
+            pumpSplash(16);
+            if (!splashScreen_) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+        extensionsFuture.wait();
+        aiModelsFuture.wait();
+        startupManager_.notifyProgress(StartupPhase::ExtensionsLoad, 1.0f);
+        startupManager_.notifyProgress(StartupPhase::AIModelsLoad, 1.0f);
+
+        setSplashStage(0.76f, "Initializing Workbench UI",
+                       "Preparing editor, explorer sidebar & integrated terminal");
+
+        // Phase 4: Initialize Main IDE Window (kept hidden until splash finishes)
         startupManager_.notifyProgress(StartupPhase::UIInit, 0.0f);
         if (!initializeUI()) {
             std::cerr << "Failed to initialize UI" << std::endl;
@@ -201,49 +322,79 @@ int NexusForgeApp::run(int argc, char* argv[]) {
         }
         startupManager_.notifyProgress(StartupPhase::UIInit, 1.0f);
 
-        // Phase 4: Load Extensions (Async)
-        startupManager_.notifyProgress(StartupPhase::ExtensionsLoad, 0.0f);
-        auto extensionsFuture = std::async(std::launch::async, [this]() {
-            return loadExtensions();
-        });
-
-        // Phase 5: Load AI Models (Async)
-        startupManager_.notifyProgress(StartupPhase::AIModelsLoad, 0.0f);
-        auto aiModelsFuture = std::async(std::launch::async, [this]() {
-            return loadAIModels();
-        });
-
-        // Wait for async operations
-        extensionsFuture.wait();
-        startupManager_.notifyProgress(StartupPhase::ExtensionsLoad, 1.0f);
-
-        aiModelsFuture.wait();
-        startupManager_.notifyProgress(StartupPhase::AIModelsLoad, 1.0f);
-
-        // Phase 6: Restore Workspace
+        // Phase 5: Restore Workspace
         startupManager_.notifyProgress(StartupPhase::WorkspaceRestore, 0.0f);
+        setSplashStage(0.90f, "Restoring Workspace",
+                       "Indexing project tree, git branch & recent session");
         restoreWorkspace();
         startupManager_.notifyProgress(StartupPhase::WorkspaceRestore, 1.0f);
 
-        // Ready
+        // Phase 6: Finalize splash animation smoothly to 100% before opening IDE window
         startupManager_.notifyProgress(StartupPhase::Ready, 1.0f);
+        if (splashScreen_ && splashScreen_->isVisible()) {
+            splashScreen_->setPhase("Launching NexusForge IDE");
+            splashScreen_->setProgress(1.0f, "Ready - opening workbench");
+            while (!g_signalQuit && !splashScreen_->isCloseRequested() &&
+                   (!splashScreen_->isMinimumTimeElapsed() ||
+                    splashScreen_->getDisplayedProgress() < 0.99f)) {
+                pumpSplash(16);
+            }
+            if (hasGui && !g_signalQuit && !splashScreen_->isCloseRequested()) {
+                pumpSplash(180); // Brief pause at 100% so user sees completion
+            }
+            splashScreen_->close();
+            splashScreen_.reset();
+        }
+
+        if (g_signalQuit) {
+            shutdown();
+            return 0;
+        }
+
+        // Open any files passed on the command line
+        if (mainWindow_ && !filesToOpen.empty()) {
+            mainWindow_->openFiles(filesToOpen);
+        }
+
+        // Wire platform window events and 60 FPS update/render loop to MainWindow
+        Platform::PlatformAbstraction::setWindowEventCallback(
+            [this](const Platform::PlatformEvent& ev) {
+                if (mainWindow_) {
+                    mainWindow_->handlePlatformEvent(ev);
+                }
+            });
+
+        engine_->setUpdateCallback([this](double dt) {
+            if (g_signalQuit) {
+                engine_->requestQuit();
+                return;
+            }
+            if (mainWindow_) {
+                mainWindow_->update(dt);
+            }
+        });
+
+        engine_->setRenderCallback([this]() {
+            if (mainWindow_) {
+                mainWindow_->render();
+            }
+        });
+
         if (mainWindow_) {
+            mainWindow_->addOutputLog("[ready] Startup complete - NexusForge IDE is ready");
             mainWindow_->show();
         }
 
-        // Handle Ctrl+C / SIGTERM cleanly
-        auto signalHandler = [](int) {
-            NexusForgeApp::getInstance().getEngine().requestQuit();
-        };
-        std::signal(SIGINT, signalHandler);
-        std::signal(SIGTERM, signalHandler);
-
         std::cout << APP_NAME << " " << APP_VERSION << " (" << APP_CODENAME
-                  << ") ready. Press Ctrl+C to exit." << std::endl;
+                  << ") ready." << (hasGui ? " Close window or press Ctrl+C to exit."
+                                           : " Press Ctrl+C to exit.")
+                  << std::endl;
 
         // Main Loop
         running_ = true;
-        return engine_->runMainLoop();
+        int rc = engine_->runMainLoop();
+        shutdown();
+        return rc;
 
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << std::endl;
@@ -253,7 +404,12 @@ int NexusForgeApp::run(int argc, char* argv[]) {
 
 void NexusForgeApp::shutdown() {
     running_ = false;
+    Platform::PlatformAbstraction::setWindowEventCallback(nullptr);
 
+    if (splashScreen_) {
+        splashScreen_->close();
+        splashScreen_.reset();
+    }
     if (aiManager_) aiManager_->shutdown();
     if (mainWindow_) mainWindow_->close();
     if (engine_) engine_->shutdown();

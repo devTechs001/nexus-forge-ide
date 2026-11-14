@@ -362,6 +362,7 @@ build_direct() {
         ui/framework/animation_engine.cpp
         ui/framework/theme_manager.cpp
         ui/renderer/render_engine.cpp
+        ui/renderer/software_backend.cpp
         ui/renderer/font_renderer.cpp
         ui/renderer/texture_manager.cpp
         ui/renderer/shader_manager.cpp
@@ -531,6 +532,13 @@ build_direct() {
     if [[ "$ENABLE_DX12" -eq 1 && "$PLATFORM" == "Windows" ]]; then
         cxxflags+=(-DNEXUS_ENABLE_DX12)
         sources+=(ui/renderer/directx_backend.cpp)
+    fi
+
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists freetype2; then
+        # shellcheck disable=SC2207
+        cxxflags+=(-DNEXUS_HAS_FREETYPE $(pkg-config --cflags freetype2))
+        # shellcheck disable=SC2207
+        ldflags+=($(pkg-config --libs freetype2))
     fi
 
     if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists tree-sitter; then

@@ -604,6 +604,30 @@ void* PlatformAbstraction::getNativeWindowHandle(void* window) {
     return window;
 }
 
+bool PlatformAbstraction::hasGraphicalDisplay() {
+    return false;
+}
+
+bool PlatformAbstraction::presentFramebuffer(void* window, const uint32_t* bgraPixels, int width, int height) {
+    (void)window; (void)bgraPixels; (void)width; (void)height;
+    return false;
+}
+
+void PlatformAbstraction::getWindowSize(void* window, int& width, int& height) {
+    (void)window;
+    width = 1280;
+    height = 720;
+}
+
+bool PlatformAbstraction::isWindowCloseRequested(void* window) {
+    (void)window;
+    return false;
+}
+
+void PlatformAbstraction::setWindowEventCallback(WindowEventCallback callback) {
+    (void)callback;
+}
+
 } // namespace NexusForge::Platform
 
 #endif // !NEXUS_PLATFORM_LINUX

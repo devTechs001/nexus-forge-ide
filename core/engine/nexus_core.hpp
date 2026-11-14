@@ -64,6 +64,8 @@ public:
     // Frame management
     void tick();
     void render();
+    void setUpdateCallback(std::function<void(double)> callback) { updateCallback_ = std::move(callback); }
+    void setRenderCallback(std::function<void()> callback) { renderCallback_ = std::move(callback); }
 
     // Subsystem access
     MemoryManager& getMemoryManager();
@@ -93,6 +95,9 @@ private:
 
     std::atomic<bool> running_{false};
     bool initialized_ = false;
+
+    std::function<void(double)> updateCallback_;
+    std::function<void()> renderCallback_;
 
     // Timing
     double lastFrameTime_ = 0.0;

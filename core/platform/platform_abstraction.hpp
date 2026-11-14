@@ -67,6 +67,54 @@ struct ProcessInfo {
     std::vector<std::string> arguments;
 };
 
+// Platform Window Event (lightweight POD for windowing backends)
+enum class PlatformEventType {
+    None,
+    WindowClose,
+    WindowResize,
+    WindowExpose,
+    KeyPress,
+    KeyRelease,
+    CharInput,
+    MouseMove,
+    MouseButtonPress,
+    MouseButtonRelease,
+    MouseScroll
+};
+
+struct PlatformEvent {
+    PlatformEventType type = PlatformEventType::None;
+    void* window = nullptr;
+    int width = 0;
+    int height = 0;
+    int keyCode = 0;
+    int scanCode = 0;
+    int modifiers = 0;    // 0x1=Shift, 0x2=Ctrl, 0x4=Alt
+    uint32_t codepoint = 0;
+    int button = 0;
+    double x = 0.0;
+    double y = 0.0;
+    double scrollX = 0.0;
+    double scrollY = 0.0;
+};
+
+// Canonical special key codes (matching ASCII for printable chars)
+namespace KeyCode {
+    constexpr int Backspace = 0x100;
+    constexpr int Tab       = 0x101;
+    constexpr int Enter     = 0x102;
+    constexpr int Escape    = 0x103;
+    constexpr int Delete    = 0x104;
+    constexpr int Left      = 0x105;
+    constexpr int Right     = 0x106;
+    constexpr int Up        = 0x107;
+    constexpr int Down      = 0x108;
+    constexpr int Home      = 0x109;
+    constexpr int End       = 0x10A;
+    constexpr int PageUp    = 0x10B;
+    constexpr int PageDown  = 0x10C;
+}
+
 // Platform Abstraction Layer
 class PlatformAbstraction {
 public:
@@ -161,6 +209,14 @@ public:
     static void setWindowFullscreen(void* window, bool fullscreen);
     static bool isWindowFullscreen(void* window);
     static void* getNativeWindowHandle(void* window);
+
+    // Framebuffer presentation & native window queries/events
+    static bool hasGraphicalDisplay();
+    static bool presentFramebuffer(void* window, const uint32_t* bgraPixels, int width, int height);
+    static void getWindowSize(void* window, int& width, int& height);
+    static bool isWindowCloseRequested(void* window);
+    using WindowEventCallback = std::function<void(const PlatformEvent&)>;
+    static void setWindowEventCallback(WindowEventCallback callback);
 
     // Threading
     static void setThreadName(const std::string& name);

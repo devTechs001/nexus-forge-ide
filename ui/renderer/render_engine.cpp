@@ -462,11 +462,17 @@ void RenderEngine::setBlendMode(BlendMode mode) {
 }
 
 Vec2 RenderEngine::measureText(const std::string& text, const std::string& font, float size) {
+    if (backend_) {
+        Vec2 measured;
+        if (backend_->measureText(text, font, size, measured)) {
+            return measured;
+        }
+    }
     if (fontRenderer_) {
         if (!font.empty()) fontRenderer_->setCurrentFont(font);
         return fontRenderer_->measureText(text, size);
     }
-    return Vec2(text.length() * size * 0.5f, size);
+    return Vec2(text.length() * size * 0.55f, size);
 }
 
 TextureHandle RenderEngine::createTexture(int w, int h, const void* data, bool genMips) {
