@@ -7,6 +7,7 @@
 #include <memory>
 #include <queue>
 #include <mutex>
+#include <cstdint>
 
 namespace NexusForge::Extensions {
 

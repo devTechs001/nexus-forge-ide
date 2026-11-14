@@ -6,6 +6,9 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <cstdlib>
+#include <ctime>
+#include <iostream>
 
 namespace NexusForge::Terminal {
 

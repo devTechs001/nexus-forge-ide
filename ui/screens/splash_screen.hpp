@@ -8,6 +8,8 @@
 #include <string>
 #include <functional>
 #include <chrono>
+#include <memory>
+#include <vector>
 
 namespace NexusForge::UI {
 

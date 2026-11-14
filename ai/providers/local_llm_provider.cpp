@@ -4,6 +4,9 @@
 #include "local_llm_provider.hpp"
 #include <sstream>
 #include <fstream>
+#include <algorithm>
+#include <memory>
+#include <thread>
 
 namespace NexusForge::AI {
 

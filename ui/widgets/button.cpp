@@ -1,5 +1,6 @@
 // ui/widgets/button.cpp
 #include "button.hpp"
+#include <algorithm>
 
 namespace NexusForge::UI {
 

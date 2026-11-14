@@ -4,6 +4,7 @@
 #include "../models/model_manager.hpp"
 #include <string>
 #include <vector>
+#include <future>
 
 namespace NexusForge::AI {
 

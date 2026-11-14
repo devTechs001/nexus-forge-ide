@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cctype>
 #include <regex>
+#include <cstdint>
+#include <iostream>
 
 namespace NexusForge::Editor {
 

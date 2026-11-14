@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <exception>
 
 namespace NexusForge::Core {
 

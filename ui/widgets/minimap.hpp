@@ -2,6 +2,11 @@
 #pragma once
 
 #include "../framework/widget_system.hpp"
+#include <cstddef>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace NexusForge::UI {
 

@@ -11,6 +11,7 @@
 #include <any>
 #include <string>
 #include <algorithm>
+#include <cstdint>
 
 namespace NexusForge::Core {
 

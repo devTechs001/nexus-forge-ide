@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <functional>
+#include <unordered_map>
 
 namespace NexusForge::Extensions {
 

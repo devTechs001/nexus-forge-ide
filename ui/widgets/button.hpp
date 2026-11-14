@@ -4,6 +4,7 @@
 #include "../framework/widget_system.hpp"
 #include <functional>
 #include <string>
+#include <memory>
 
 namespace NexusForge::UI {
 

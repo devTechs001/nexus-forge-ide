@@ -2,6 +2,7 @@
 // OpenGL Backend Implementation
 
 #include "opengl_backend.hpp"
+#include <algorithm>
 
 #ifdef NEXUS_ENABLE_OPENGL
 

@@ -2,6 +2,7 @@
 #include "event_system.hpp"
 #include <algorithm>
 #include <chrono>
+#include <exception>
 
 namespace NexusForge::Core {
 

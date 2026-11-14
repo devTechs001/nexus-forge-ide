@@ -2,6 +2,8 @@
 #pragma once
 
 #include "render_engine.hpp"
+#include <cstdint>
+#include <string>
 
 #ifdef NEXUS_ENABLE_METAL
 

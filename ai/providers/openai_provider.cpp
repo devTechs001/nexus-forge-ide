@@ -4,6 +4,7 @@
 #include "openai_provider.hpp"
 #include <sstream>
 #include <algorithm>
+#include <cstdio>
 
 namespace NexusForge::AI {
 
