@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <functional>
 #include <optional>
+#include <cstdint>
 
 namespace NexusForge::Config {
 

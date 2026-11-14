@@ -3,6 +3,7 @@
 
 #include "../renderer/render_engine.hpp"
 #include "../../core/engine/event_system.hpp"
+#include "theme_manager.hpp"
 
 #include <memory>
 #include <vector>
@@ -11,11 +12,6 @@
 #include <optional>
 
 namespace NexusForge::UI {
-
-// Forward declarations
-class Widget;
-class Container;
-class Window;
 
 // Size constraints
 struct SizeConstraints {
@@ -80,16 +76,19 @@ enum class FocusPolicy {
     StrongFocus
 };
 
+// Layout direction
+enum class LayoutDirection { LeftToRight, RightToLeft, TopToBottom, BottomToTop };
+
 // Widget style
 struct WidgetStyle {
-    Color backgroundColor = Color::Transparent();
-    Color foregroundColor = Color::White();
-    Color borderColor = Color(0.3f, 0.3f, 0.3f, 1.0f);
-    Color hoverColor;
-    Color pressedColor;
-    Color disabledColor;
-    Color focusColor;
-    Color selectionColor;
+    GradientColor backgroundColor = GradientColor::fromRGBA(0, 0, 0, 0);
+    GradientColor foregroundColor = GradientColor::fromRGBA(1, 1, 1, 1);
+    GradientColor borderColor = GradientColor::fromRGBA(0.3f, 0.3f, 0.3f, 1.0f);
+    GradientColor hoverColor;
+    GradientColor pressedColor;
+    GradientColor disabledColor;
+    GradientColor focusColor;
+    GradientColor selectionColor;
 
     float borderWidth = 0;
     float borderRadius = 0;
@@ -100,7 +99,7 @@ struct WidgetStyle {
     bool fontItalic = false;
 
     bool hasShadow = false;
-    Color shadowColor;
+    GradientColor shadowColor = GradientColor::fromRGBA(0, 0, 0, 0.3f);
     float shadowBlur = 4;
     float shadowOffsetX = 0;
     float shadowOffsetY = 2;
@@ -135,9 +134,6 @@ public:
     // Identification
     void setId(const std::string& id) { id_ = id; }
     const std::string& getId() const { return id_; }
-    void addClass(const std::string& className);
-    void removeClass(const std::string& className);
-    bool hasClass(const std::string& className) const;
 
     // Geometry
     void setPosition(float x, float y);
@@ -162,8 +158,8 @@ public:
     VAlignment getVAlignment() const { return vAlignment_; }
 
     // Visibility
-    void setVisible(bool visible);
-    void setEnabled(bool enabled);
+    void setVisible(bool visible) { visible_ = visible; }
+    void setEnabled(bool enabled) { enabled_ = enabled; }
     bool isVisible() const { return visible_; }
     bool isEnabled() const { return enabled_; }
     bool isVisibleInHierarchy() const;
@@ -226,6 +222,7 @@ public:
     virtual bool onMouseDown(const Core::MouseButtonPressEvent& event);
     virtual bool onMouseUp(const Core::MouseButtonReleaseEvent& event);
     virtual bool onClick(const Core::MouseButtonReleaseEvent& event);
+    virtual bool onDoubleClick(const Core::MouseButtonPressEvent& event);
     virtual bool onScroll(const Core::ScrollEvent& event);
     virtual bool onKeyDown(const Core::KeyPressEvent& event);
     virtual bool onKeyUp(const Core::KeyReleaseEvent& event);
@@ -233,11 +230,20 @@ public:
     virtual bool onFocusGained();
     virtual bool onFocusLost();
 
+    // Touch events
+    virtual bool onTouchStart(const Core::TouchEvent& event);
+    virtual bool onTouchMove(const Core::TouchEvent& event);
+    virtual bool onTouchEnd(const Core::TouchEvent& event);
+    virtual bool onGesture(const Core::GestureEvent& event);
+
     // Callbacks
     std::function<void()> onClick_;
+    std::function<void()> onDoubleClick_;
     std::function<void()> onHover_;
     std::function<void()> onFocus_;
     std::function<void()> onBlur_;
+    std::function<void(const Vec2&)> onDrag_;
+    std::function<void(const Vec2&)> onDragEnd_;
 
     // Animations
     void startAnimation(const Animation& animation);
@@ -247,6 +253,8 @@ public:
     // Accessibility
     void setAccessibleName(const std::string& name) { accessibleName_ = name; }
     void setAccessibleDescription(const std::string& desc) { accessibleDescription_ = desc; }
+    const std::string& getAccessibleName() const { return accessibleName_; }
+    const std::string& getAccessibleDescription() const { return accessibleDescription_; }
 
 protected:
     virtual void onBoundsChanged(const Rect& oldBounds, const Rect& newBounds) {}
@@ -255,9 +263,10 @@ protected:
     virtual void onChildRemoved(Ptr child) {}
 
     void setState(WidgetState state);
+    Color getCurrentBackgroundColor() const;
+    Color getCurrentForegroundColor() const;
 
     std::string id_;
-    std::vector<std::string> classes_;
     Rect bounds_;
     SizeConstraints constraints_;
     EdgeInsets margin_;
@@ -283,6 +292,12 @@ protected:
     std::string accessibleDescription_;
 
     std::vector<Animation> animations_;
+
+    bool dragging_ = false;
+    Vec2 dragStartPos_;
+    Vec2 dragOffset_;
+    
+    bool mouseDown_ = false;
 };
 
 // Container widget
@@ -297,8 +312,16 @@ public:
     Vec2 measure(float availableWidth, float availableHeight) override;
     void arrange(const Rect& finalRect) override;
 
+    void setLayoutDirection(LayoutDirection dir) { layoutDirection_ = dir; }
+    LayoutDirection getLayoutDirection() const { return layoutDirection_; }
+
+    void setSpacing(float spacing) { spacing_ = spacing; }
+    float getSpacing() const { return spacing_; }
+
 protected:
     virtual void layoutChildren(const Rect& contentRect);
+    LayoutDirection layoutDirection_ = LayoutDirection::LeftToRight;
+    float spacing_ = 0;
 };
 
 } // namespace NexusForge::UI

@@ -19,15 +19,17 @@ public:
     void insert(size_t position, const std::string& text);
     void remove(size_t position, size_t length);
     void replace(size_t position, size_t length, const std::string& text);
+    void setText(const std::string& text);
     
     // Text retrieval
     char at(size_t position) const;
     std::string getText() const;
-    std::string getTextRange(size_t start, size_t end) const;
+    std::string substr(size_t start, size_t len) const;
     
     // Document info
-    size_t length() const { return totalLength_; }
+    size_t length() const { return totalLength(); }
     size_t lineCount() const;
+    size_t totalLength() const;
     
     // Line operations
     std::string getLine(size_t lineNum) const;
@@ -41,9 +43,13 @@ public:
     void redo();
     bool canUndo() const;
     bool canRedo() const;
+    
+    // Utility
+    void clear();
+    size_t getMemoryUsage() const;
 
 private:
-    enum class BufferType { Original, Added };
+    enum class BufferType { Original, Add };
     
     struct Piece {
         BufferType buffer;
@@ -51,6 +57,7 @@ private:
         size_t length;    // Length of piece
         size_t lineCount; // Cached line count
         
+        Piece() : buffer(BufferType::Original), start(0), length(0), lineCount(0) {}
         Piece(BufferType b, size_t s, size_t len) 
             : buffer(b), start(s), length(len), lineCount(0) {}
     };
@@ -58,9 +65,6 @@ private:
     std::string original_;      // Original text (immutable)
     std::string added_;         // Added text (append-only)
     std::vector<Piece> pieces_; // Piece table
-    
-    size_t totalLength_ = 0;
-    size_t totalLines_ = 1;
     
     struct EditState {
         std::vector<Piece> pieces;
@@ -71,13 +75,6 @@ private:
     
     std::vector<EditState> undoStack_;
     std::vector<EditState> redoStack_;
-    bool inUndoGroup_ = false;
-    EditState undoGroupStart_;
-    
-    void recalculateLength();
-    void recalculateLines();
-    size_t findPieceIndex(size_t position) const;
-    void updateLineCache(size_t pieceIndex);
 };
 
 } // namespace NexusForge::Editor

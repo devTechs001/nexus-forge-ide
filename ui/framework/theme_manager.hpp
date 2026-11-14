@@ -1,278 +1,332 @@
 // ui/framework/theme_manager.hpp
 #pragma once
 
-#include "widget_system.hpp"
+#include "../../core/engine/event_system.hpp"
+#include "../renderer/render_engine.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <functional>
 #include <memory>
+#include <functional>
 
 namespace NexusForge::UI {
 
-// Color role
-enum class ColorRole {
-    Background,
-    Foreground,
-    Border,
-    Primary,
-    Secondary,
-    Accent,
-    Success,
-    Warning,
-    Error,
-    Info,
+// Color with gradient support
+struct GradientColor {
+    struct Stop {
+        float position; // 0.0 to 1.0
+        float r, g, b, a;
+    };
     
-    // Editor colors
-    EditorBackground,
-    EditorForeground,
-    EditorCursor,
-    EditorSelection,
-    EditorLineNumber,
-    EditorLineNumberActive,
-    EditorIndentGuide,
-    EditorWhitespace,
+    std::vector<Stop> stops;
+    bool isGradient = false;
     
-    // UI component colors
-    ButtonBackground,
-    ButtonForeground,
-    ButtonHover,
-    ButtonPressed,
-    InputBackground,
-    InputForeground,
-    InputBorder,
-    InputFocus,
-    MenuBackground,
-    MenuForeground,
-    MenuHover,
-    MenuSelected,
-    TabBackground,
-    TabForeground,
-    TabActive,
-    ScrollbarBackground,
-    ScrollbarForeground,
-    ScrollbarHover,
+    GradientColor() = default;
+    
+    GradientColor(const Color& c) {
+        stops.push_back({0.0f, c.r, c.g, c.b, c.a});
+    }
+    
+    GradientColor& operator=(const Color& c) {
+        stops.clear();
+        stops.push_back({0.0f, c.r, c.g, c.b, c.a});
+        return *this;
+    }
+    
+    operator Color() const {
+        if (!stops.empty()) {
+            return Color(stops[0].r, stops[0].g, stops[0].b, stops[0].a);
+        }
+        return Color(1, 1, 1, 1);
+    }
+    
+    // Solid color helpers
+    static GradientColor fromRGBA(float r, float g, float b, float a = 1.0f) {
+        GradientColor c;
+        c.stops.push_back({0.0f, r, g, b, a});
+        return c;
+    }
+    
+    static GradientColor fromHex(uint32_t hex) {
+        float r = ((hex >> 24) & 0xFF) / 255.0f;
+        float g = ((hex >> 16) & 0xFF) / 255.0f;
+        float b = ((hex >> 8) & 0xFF) / 255.0f;
+        float a = (hex & 0xFF) / 255.0f;
+        return fromRGBA(r, g, b, a);
+    }
+    
+    // Linear gradient
+    static GradientColor linearGradient(const Stop& start, const Stop& end) {
+        GradientColor c;
+        c.isGradient = true;
+        c.stops.push_back(start);
+        c.stops.push_back(end);
+        return c;
+    }
+    
+    // Multi-stop gradient
+    static GradientColor multiGradient(std::vector<Stop> stops) {
+        GradientColor c;
+        c.isGradient = true;
+        c.stops = std::move(stops);
+        return c;
+    }
+};
+
+// Predefined gradient presets
+struct GradientPresets {
+    // Warm gradients
+    static GradientColor sunset() {
+        return GradientColor::multiGradient({
+            {0.0f, 1.0f, 0.5f, 0.0f, 1.0f},   // Orange
+            {0.5f, 1.0f, 0.3f, 0.3f, 1.0f},   // Pink-Orange
+            {1.0f, 0.8f, 0.0f, 0.5f, 1.0f}    // Purple
+        });
+    }
+    
+    static GradientColor sunrise() {
+        return GradientColor::multiGradient({
+            {0.0f, 1.0f, 0.9f, 0.5f, 1.0f},   // Light Orange
+            {0.5f, 1.0f, 0.5f, 0.3f, 1.0f},   // Pink
+            {1.0f, 0.5f, 0.3f, 0.8f, 1.0f}    // Purple
+        });
+    }
+    
+    static GradientColor fire() {
+        return GradientColor::multiGradient({
+            {0.0f, 1.0f, 0.0f, 0.0f, 1.0f},   // Red
+            {0.5f, 1.0f, 0.5f, 0.0f, 1.0f},   // Orange
+            {1.0f, 1.0f, 1.0f, 0.0f, 1.0f}    // Yellow
+        });
+    }
+    
+    // Cool gradients
+    static GradientColor ocean() {
+        return GradientColor::multiGradient({
+            {0.0f, 0.0f, 0.5f, 1.0f, 1.0f},   // Deep Blue
+            {0.5f, 0.0f, 0.8f, 0.8f, 1.0f},   // Cyan
+            {1.0f, 0.2f, 1.0f, 0.6f, 1.0f}    // Light Cyan
+        });
+    }
+    
+    static GradientColor forest() {
+        return GradientColor::multiGradient({
+            {0.0f, 0.1f, 0.5f, 0.1f, 1.0f},   // Dark Green
+            {0.5f, 0.2f, 0.7f, 0.2f, 1.0f},   // Green
+            {1.0f, 0.5f, 0.9f, 0.3f, 1.0f}    // Light Green
+        });
+    }
+    
+    static GradientColor ice() {
+        return GradientColor::multiGradient({
+            {0.0f, 0.8f, 0.9f, 1.0f, 1.0f},   // Light Blue
+            {0.5f, 0.5f, 0.7f, 1.0f, 1.0f},   // Blue
+            {1.0f, 0.3f, 0.5f, 0.8f, 1.0f}    // Dark Blue
+        });
+    }
+    
+    // Vibrant gradients
+    static GradientColor rainbow() {
+        return GradientColor::multiGradient({
+            {0.00f, 1.0f, 0.0f, 0.0f, 1.0f},  // Red
+            {0.17f, 1.0f, 0.5f, 0.0f, 1.0f},  // Orange
+            {0.33f, 1.0f, 1.0f, 0.0f, 1.0f},  // Yellow
+            {0.50f, 0.0f, 1.0f, 0.0f, 1.0f},  // Green
+            {0.67f, 0.0f, 0.5f, 1.0f, 1.0f},  // Blue
+            {0.83f, 0.5f, 0.0f, 1.0f, 1.0f},  // Indigo
+            {1.00f, 1.0f, 0.0f, 0.5f, 1.0f}   // Violet
+        });
+    }
+    
+    static GradientColor neon() {
+        return GradientColor::multiGradient({
+            {0.0f, 1.0f, 0.0f, 1.0f, 1.0f},   // Neon Red
+            {0.5f, 0.0f, 1.0f, 1.0f, 1.0f},   // Neon Green
+            {1.0f, 1.0f, 0.0f, 1.0f, 1.0f}    // Neon Blue
+        });
+    }
+    
+    static GradientColor cyberpunk() {
+        return GradientColor::multiGradient({
+            {0.0f, 1.0f, 0.0f, 0.5f, 1.0f},   // Hot Pink
+            {0.5f, 0.0f, 1.0f, 1.0f, 1.0f},   // Cyan
+            {1.0f, 0.8f, 0.0f, 1.0f, 1.0f}    // Purple
+        });
+    }
+    
+    // Subtle gradients
+    static GradientColor midnight() {
+        return GradientColor::multiGradient({
+            {0.0f, 0.1f, 0.1f, 0.2f, 1.0f},   // Dark Blue-Gray
+            {0.5f, 0.2f, 0.2f, 0.3f, 1.0f},   // Medium Blue-Gray
+            {1.0f, 0.3f, 0.3f, 0.4f, 1.0f}    // Light Blue-Gray
+        });
+    }
+    
+    static GradientColor dawn() {
+        return GradientColor::multiGradient({
+            {0.0f, 0.9f, 0.9f, 1.0f, 1.0f},   // Light Blue
+            {0.5f, 1.0f, 0.8f, 0.6f, 1.0f},   // Soft Pink
+            {1.0f, 1.0f, 0.9f, 0.7f, 1.0f}    // Warm Yellow
+        });
+    }
+    
+    // Monochrome gradients
+    static GradientColor grayscale() {
+        return GradientColor::multiGradient({
+            {0.0f, 0.0f, 0.0f, 0.0f, 1.0f},   // Black
+            {0.5f, 0.5f, 0.5f, 0.5f, 1.0f},   // Gray
+            {1.0f, 1.0f, 1.0f, 1.0f, 1.0f}    // White
+        });
+    }
+    
+    static GradientColor charcoal() {
+        return GradientColor::multiGradient({
+            {0.0f, 0.1f, 0.1f, 0.1f, 1.0f},   // Dark Charcoal
+            {0.5f, 0.2f, 0.2f, 0.2f, 1.0f},   // Medium Charcoal
+            {1.0f, 0.3f, 0.3f, 0.3f, 1.0f}    // Light Charcoal
+        });
+    }
+};
+
+// Theme definition
+struct Theme {
+    std::string name;
+    std::string id;
+    bool isDark = true;
+    
+    // Base colors
+    GradientColor backgroundPrimary;
+    GradientColor backgroundSecondary;
+    GradientColor backgroundTertiary;
+    
+    // Surface colors
+    GradientColor surface;
+    GradientColor surfaceHover;
+    GradientColor surfaceActive;
+    GradientColor surfaceSelected;
+    
+    // Text colors
+    GradientColor textPrimary;
+    GradientColor textSecondary;
+    GradientColor textDisabled;
+    GradientColor textInverse;
+    
+    // Accent colors
+    GradientColor accentPrimary;
+    GradientColor accentSecondary;
+    GradientColor accentHover;
+    GradientColor accentActive;
+    
+    // Border colors
+    GradientColor border;
+    GradientColor borderHover;
+    GradientColor borderFocus;
     
     // Status colors
-    StatusBarBackground,
-    StatusBarForeground,
-    ActivityBarBackground,
-    ActivityBarForeground,
-    ActivityBarActive,
-    SidebarBackground,
-    PanelBackground,
-    TitleBarBackground,
-    TitleBarForeground
-};
-
-// Theme variant
-enum class ThemeVariant {
-    Light,
-    Dark,
-    HighContrast,
-    Custom
-};
-
-// Color scheme
-struct ColorScheme {
-    std::unordered_map<ColorRole, Color> colors;
+    GradientColor success;
+    GradientColor warning;
+    GradientColor error;
+    GradientColor info;
     
-    Color get(ColorRole role) const;
-    void set(ColorRole role, const Color& color);
+    // Syntax highlighting colors
+    GradientColor syntaxKeyword;
+    GradientColor syntaxType;
+    GradientColor syntaxFunction;
+    GradientColor syntaxVariable;
+    GradientColor syntaxLiteral;
+    GradientColor syntaxComment;
+    GradientColor syntaxString;
+    GradientColor syntaxNumber;
+    GradientColor syntaxOperator;
+    GradientColor syntaxTag;
+    GradientColor syntaxAttribute;
     
-    // Predefined schemes
-    static ColorScheme createDark();
-    static ColorScheme createLight();
-    static ColorScheme createHighContrast();
-};
-
-// Font scheme
-struct FontScheme {
+    // UI element colors
+    GradientColor scrollbar;
+    GradientColor scrollbarHover;
+    GradientColor selection;
+    GradientColor highlight;
+    GradientColor cursor;
+    GradientColor lineNumber;
+    GradientColor lineNumberActive;
+    GradientColor guideLine;
+    GradientColor minimap;
+    
+    // Window colors
+    GradientColor titleBar;
+    GradientColor titleBarInactive;
+    GradientColor statusBar;
+    GradientColor toolbar;
+    
+    // Font settings
     std::string fontFamily = "Inter";
     std::string monospaceFont = "JetBrains Mono";
-    
-    float fontSizeSmall = 11;
-    float fontSizeNormal = 13;
-    float fontSizeLarge = 16;
-    float fontSizeXLarge = 20;
-    
-    float lineHeightSmall = 1.4f;
-    float lineHeightNormal = 1.5f;
-    float lineHeightLarge = 1.6f;
-    
-    float fontWeightNormal = 400;
-    float fontWeightBold = 600;
-};
-
-// Spacing scheme
-struct SpacingScheme {
-    float unit = 4;
-    
-    float xs = 4;
-    float sm = 8;
-    float md = 16;
-    float lg = 24;
-    float xl = 32;
-    float xxl = 48;
-};
-
-// Shadow definition
-struct Shadow {
-    float offsetX = 0;
-    float offsetY = 2;
-    float blur = 4;
-    float spread = 0;
-    Color color = Color(0, 0, 0, 0.25f);
-    
-    static Shadow small();
-    static Shadow medium();
-    static Shadow large();
-};
-
-// Widget style preset
-struct WidgetStylePreset {
-    WidgetStyle style;
-    std::string name;
-    ThemeVariant variant = ThemeVariant::Dark;
-};
-
-// Theme
-class Theme {
-public:
-    using Ptr = std::shared_ptr<Theme>;
-    
-    Theme();
-    Theme(const std::string& name, ThemeVariant variant = ThemeVariant::Dark);
-    ~Theme();
-    
-    // Identity
-    const std::string& getName() const { return name_; }
-    void setName(const std::string& name) { name_ = name; }
-    
-    ThemeVariant getVariant() const { return variant_; }
-    void setVariant(ThemeVariant variant) { variant_ = variant; }
-    
-    bool isDark() const { return variant_ == ThemeVariant::Dark; }
-    bool isLight() const { return variant_ == ThemeVariant::Light; }
-    
-    // Colors
-    ColorScheme& getColors() { return colors_; }
-    const ColorScheme& getColors() const { return colors_; }
-    void setColor(ColorRole role, const Color& color);
-    Color getColor(ColorRole role) const;
-    
-    // Fonts
-    FontScheme& getFonts() { return fonts_; }
-    const FontScheme& getFonts() const { return fonts_; }
+    float fontSize = 14.0f;
+    float lineHeight = 1.5f;
     
     // Spacing
-    SpacingScheme& getSpacing() { return spacing_; }
-    const SpacingScheme& getSpacing() const { return spacing_; }
+    float spacingXS = 4.0f;
+    float spacingS = 8.0f;
+    float spacingM = 16.0f;
+    float spacingL = 24.0f;
+    float spacingXL = 32.0f;
     
-    // Shadows
-    Shadow getShadow(const std::string& name) const;
-    void setShadow(const std::string& name, const Shadow& shadow);
+    // Border radius
+    float borderRadiusS = 4.0f;
+    float borderRadiusM = 8.0f;
+    float borderRadiusL = 12.0f;
+    float borderRadiusXL = 16.0f;
     
-    // Widget styles
-    WidgetStyle getWidgetStyle(const std::string& widgetType) const;
-    void setWidgetStyle(const std::string& widgetType, const WidgetStyle& style);
-    
-    // Apply to widget
-    void applyToWidget(Widget* widget) const;
-    
-    // Serialization
-    std::string toJson() const;
-    static Theme fromJson(const std::string& json);
-    
-    // Built-in themes
-    static Theme createDefaultDark();
-    static Theme createDefaultLight();
-    static Theme createHighContrast();
-    static Theme createSolarizedDark();
-    static Theme createSolarizedLight();
-    static Theme createMonokai();
-    static Theme createDracula();
-    static Theme createNord();
-    
-private:
-    std::string name_;
-    ThemeVariant variant_ = ThemeVariant::Dark;
-    ColorScheme colors_;
-    FontScheme fonts_;
-    SpacingScheme spacing_;
-    std::unordered_map<std::string, Shadow> shadows_;
-    std::unordered_map<std::string, WidgetStyle> widgetStyles_;
+    // Shadow
+    bool enableShadows = true;
+    float shadowBlur = 16.0f;
+    float shadowOffsetX = 0.0f;
+    float shadowOffsetY = 4.0f;
 };
 
-// Theme manager
+// Theme Manager
 class ThemeManager {
 public:
-    static ThemeManager& getInstance();
-    
+    ThemeManager();
+    ~ThemeManager();
+
     // Theme management
-    void registerTheme(Theme::Ptr theme);
-    void unregisterTheme(const std::string& name);
-    Theme::Ptr getTheme(const std::string& name) const;
-    
-    // Current theme
-    void setCurrentTheme(const std::string& name);
-    Theme::Ptr getCurrentTheme() const { return currentTheme_; }
-    
-    // Theme switching
-    void setDarkMode(bool dark);
-    bool isDarkMode() const;
-    
-    // Auto theme based on system
-    void setAutoTheme(bool autoTheme);
-    bool isAutoTheme() const { return autoTheme_; }
-    
-    // Apply theme to widget
-    void applyCurrentTheme(Widget* widget) const;
-    void applyCurrentThemeToAll(Widget* root) const;
+    void registerTheme(const Theme& theme);
+    void setTheme(const std::string& themeId);
+    const Theme* getCurrentTheme() const { return currentTheme_; }
+    const Theme* getTheme(const std::string& themeId) const;
+    std::vector<std::string> getAvailableThemes() const;
+
+    // Color resolution
+    GradientColor getColor(const std::string& colorName) const;
     
     // Events
-    using ThemeChangedCallback = std::function<void(Theme::Ptr)>;
-    size_t addThemeChangedListener(ThemeChangedCallback callback);
-    void removeThemeChangedListener(size_t id);
-    
-    // List all themes
-    std::vector<std::string> getAvailableThemes() const;
-    
-    // Load themes from directory
-    void loadThemesFromDirectory(const std::string& path);
-    void saveTheme(const std::string& name, const std::string& path);
-    
-private:
-    ThemeManager();
-    
-    std::unordered_map<std::string, Theme::Ptr> themes_;
-    Theme::Ptr currentTheme_;
-    bool autoTheme_ = false;
-    
-    std::vector<std::pair<size_t, ThemeChangedCallback>> listeners_;
-    size_t nextListenerId_ = 1;
-    
-    void notifyThemeChanged();
-    void detectSystemTheme();
-};
+    using ThemeChangedCallback = std::function<void(const Theme&)>;
+    void onThemeChanged(ThemeChangedCallback callback);
 
-// Theme builder
-class ThemeBuilder {
-public:
-    ThemeBuilder();
-    
-    ThemeBuilder& name(const std::string& name);
-    ThemeBuilder& variant(ThemeVariant variant);
-    ThemeBuilder& color(ColorRole role, const Color& color);
-    ThemeBuilder& fontFamily(const std::string& family);
-    ThemeBuilder& monospaceFont(const std::string& family);
-    ThemeBuilder& fontSize(float size);
-    ThemeBuilder& spacing(float unit);
-    
-    Theme::Ptr build();
-    
+    // Built-in themes
+    static Theme createDarkTheme();
+    static Theme createLightTheme();
+    static Theme createMidnightTheme();
+    static Theme createSunsetTheme();
+    static Theme createOceanTheme();
+    static Theme createForestTheme();
+    static Theme createCyberpunkTheme();
+    static Theme createMonokaiTheme();
+    static Theme createDraculaTheme();
+    static Theme createNordTheme();
+    static Theme createGruvboxTheme();
+    static Theme createSolarizedTheme();
+    static Theme createRainbowTheme();
+
 private:
-    Theme::Ptr theme_;
+    std::unordered_map<std::string, Theme> themes_;
+    Theme* currentTheme_ = nullptr;
+    std::vector<ThemeChangedCallback> callbacks_;
+    
+    void loadBuiltInThemes();
+    void notifyThemeChanged();
 };
 
 } // namespace NexusForge::UI

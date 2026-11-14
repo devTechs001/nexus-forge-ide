@@ -1,10 +1,10 @@
 // ui/widgets/code_editor.cpp
 #include "code_editor.hpp"
+#include "../../editor/syntax/syntax_highlighter.hpp"
 
 namespace NexusForge::UI {
 
 CodeEditor::CodeEditor() = default;
-
 CodeEditor::~CodeEditor() = default;
 
 void CodeEditor::openFile(const std::string& path) {
@@ -39,15 +39,14 @@ std::string CodeEditor::getText() const {
 
 std::string CodeEditor::getSelectedText() const {
     if (!buffer_ || cursors_.empty()) return "";
-    
-    auto& cursor = cursors_[0];
-    if (cursor.selection.isEmpty()) {
+
+    if (selection_.isEmpty()) {
         return "";
     }
-    
-    auto min = cursor.selection.getMin();
-    auto max = cursor.selection.getMax();
-    return buffer_->getTextRange(min.line, min.column, max.line, max.column);
+
+    auto min = selection_.getMin();
+    auto max = selection_.getMax();
+    return buffer_->getRange(min.line, min.column, max.line, max.column);
 }
 
 void CodeEditor::setText(const std::string& text) {
@@ -59,16 +58,15 @@ void CodeEditor::setText(const std::string& text) {
 void CodeEditor::insertText(const std::string& text) {
     if (buffer_ && !cursors_.empty()) {
         auto& cursor = cursors_[0];
-        buffer_->insert(cursor.position.line, cursor.position.column, text);
+        buffer_->insert(cursor.line, cursor.column, text);
     }
 }
 
 void CodeEditor::deleteSelection() {
     if (buffer_ && !cursors_.empty()) {
-        auto& cursor = cursors_[0];
-        if (!cursor.selection.isEmpty()) {
-            auto min = cursor.selection.getMin();
-            auto max = cursor.selection.getMax();
+        if (!selection_.isEmpty()) {
+            auto min = selection_.getMin();
+            auto max = selection_.getMax();
             buffer_->removeRange(min.line, min.column, max.line, max.column);
         }
     }
@@ -92,7 +90,7 @@ void CodeEditor::insertLine(size_t lineNum, const std::string& text) {
 
 void CodeEditor::deleteLine(size_t lineNum) {
     if (buffer_) {
-        buffer_->removeLine(lineNum);
+        buffer_->deleteLine(lineNum);
     }
 }
 
@@ -109,13 +107,13 @@ void CodeEditor::moveLinesDown() {
 }
 
 CursorPosition CodeEditor::getCursorPosition() const {
-    if (!cursors_.empty()) return cursors_[0].position;
+    if (!cursors_.empty()) return cursors_[0];
     return CursorPosition{};
 }
 
 void CodeEditor::setCursorPosition(const CursorPosition& pos) {
     if (!cursors_.empty()) {
-        cursors_[0].position = pos;
+        cursors_[0] = pos;
     }
 }
 
@@ -126,27 +124,27 @@ void CodeEditor::setCursorPosition(size_t line, size_t column) {
 void CodeEditor::moveCursor(int lineDelta, int columnDelta) {
     if (!cursors_.empty()) {
         auto& cursor = cursors_[0];
-        cursor.position.line = std::max(0, static_cast<int>(cursor.position.line) + lineDelta);
-        cursor.position.column = std::max(0, static_cast<int>(cursor.position.column) + columnDelta);
+        cursor.line = std::max(0, static_cast<int>(cursor.line) + lineDelta);
+        cursor.column = std::max(0, static_cast<int>(cursor.column) + columnDelta);
     }
 }
 
 void CodeEditor::moveCursorToLineEnd() {
     if (!buffer_ || cursors_.empty()) return;
-    
+
     auto& cursor = cursors_[0];
-    size_t lineLength = buffer_->getLineLength(cursor.position.line);
-    cursor.position.column = lineLength;
+    size_t lineLength = buffer_->getLineLength(cursor.line);
+    cursor.column = lineLength;
 }
 
 void CodeEditor::moveCursorToDocumentStart() {
     if (cursors_.empty()) return;
-    cursors_[0].position = CursorPosition{0, 0};
+    cursors_[0] = CursorPosition{0, 0};
 }
 
 void CodeEditor::moveCursorToDocumentEnd() {
     if (!buffer_ || cursors_.empty()) return;
-    cursors_[0].position = CursorPosition{buffer_->getLineCount() - 1, 0};
+    cursors_[0] = CursorPosition{buffer_->getLineCount() - 1, 0};
 }
 
 void CodeEditor::moveCursorWordLeft() {
@@ -158,15 +156,13 @@ void CodeEditor::moveCursorWordRight() {
 }
 
 void CodeEditor::addCursor(const CursorPosition& pos) {
-    CursorInfo cursor;
-    cursor.position = pos;
-    cursors_.push_back(cursor);
+    cursors_.push_back(pos);
 }
 
 void CodeEditor::addCursorAbove() {
     if (cursors_.empty()) return;
-    
-    CursorPosition pos = cursors_.back().position;
+
+    CursorPosition pos = cursors_.back();
     if (pos.line > 0) {
         pos.line--;
         addCursor(pos);
@@ -175,8 +171,8 @@ void CodeEditor::addCursorAbove() {
 
 void CodeEditor::addCursorBelow() {
     if (cursors_.empty()) return;
-    
-    CursorPosition pos = cursors_.back().position;
+
+    CursorPosition pos = cursors_.back();
     pos.line++;
     addCursor(pos);
 }
@@ -192,14 +188,11 @@ void CodeEditor::clearSecondaryCursors() {
 }
 
 SelectionRange CodeEditor::getSelection() const {
-    if (!cursors_.empty()) return cursors_[0].selection;
-    return SelectionRange{};
+    return selection_;
 }
 
 void CodeEditor::setSelection(const SelectionRange& range) {
-    if (!cursors_.empty()) {
-        cursors_[0].selection = range;
-    }
+    selection_ = range;
 }
 
 void CodeEditor::selectAll() {
@@ -321,9 +314,7 @@ void CodeEditor::setScrollPosition(float x, float y) {
 
 void CodeEditor::setLanguage(const std::string& languageId) {
     languageId_ = languageId;
-    if (highlighter_) {
-        highlighter_->setLanguage(languageId);
-    }
+    // SyntaxHighlighter will be implemented separately
 }
 
 void CodeEditor::triggerCompletion() {
@@ -578,8 +569,8 @@ void CodeEditor::renderCursors(RenderEngine& renderer) {
     if (!cursorVisible_) return;
 
     for (const auto& cursor : cursors_) {
-        float x = gutterWidth_ + 10 + cursor.position.column * charWidth_ - scrollX_;
-        float y = cursor.position.line * lineHeight_ - scrollY_;
+        float x = gutterWidth_ + 10 + cursor.column * charWidth_ - scrollX_;
+        float y = cursor.line * lineHeight_ - scrollY_;
         renderer.drawRect(Rect(x, y, 2, lineHeight_), Color(1, 1, 1, 1));
     }
 }
@@ -660,32 +651,6 @@ void CodeEditor::normalizeSelection() {
 
 void CodeEditor::mergeOverlappingSelections() {
     // Merge overlapping selections
-}
-
-// Line Number Gutter
-LineNumberGutter::LineNumberGutter(CodeEditor* editor) : editor_(editor) {}
-
-void LineNumberGutter::render(RenderEngine& renderer) {
-    // Render line numbers
-}
-
-// Minimap Widget
-Minimap::Minimap(CodeEditor* editor) : editor_(editor) {}
-
-void Minimap::render(RenderEngine& renderer) {
-    // Render minimap
-}
-
-bool Minimap::onMouseDown(const Core::MouseButtonPressEvent& event) {
-    dragging_ = true;
-    return true;
-}
-
-bool Minimap::onMouseMove(const Core::MouseMoveEvent& event) {
-    if (dragging_) {
-        // Scroll editor based on mouse position
-    }
-    return true;
 }
 
 } // namespace NexusForge::UI

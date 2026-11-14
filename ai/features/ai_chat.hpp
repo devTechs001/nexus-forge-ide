@@ -8,17 +8,15 @@
 
 namespace NexusForge::AI {
 
-class AIChat {
+class AIChatAssistant {
 public:
-    explicit AIChat(ModelManager* modelManager);
-    ~AIChat();
+    explicit AIChatAssistant(ModelManager* modelManager);
+    ~AIChatAssistant();
 
-    // Conversation management
     void startNewConversation();
     void clearConversation();
-    std::string getConversationId() const { return conversationId_; }
+    std::string getConversationId() const;
 
-    // Sending messages
     void sendMessage(const std::string& message);
     void sendMessageWithCode(const std::string& message,
                              const std::string& code,
@@ -26,31 +24,34 @@ public:
     void sendMessageWithContext(const std::string& message,
                                 const std::vector<std::string>& filePaths);
 
-    // Streaming
     void streamMessage(const std::string& message, StreamCallback callback);
     void cancelStream();
 
-    // History
-    const std::vector<ChatMessage>& getHistory() const { return history_; }
+    const std::vector<ChatMessage>& getHistory() const;
+    void loadHistory(const std::vector<ChatMessage>& history);
 
-    // Events
-    using ResponseCallback = std::function<void(const std::string&, bool)>;
-    using ErrorCallback = std::function<void(const std::string&)>;
+    void explainCode(const std::string& code, const std::string& language);
+    void fixCode(const std::string& code, const std::string& language,
+                 const std::string& error);
+    void improveCode(const std::string& code, const std::string& language);
+    void askAboutCode(const std::string& question,
+                      const std::string& code,
+                      const std::string& language);
 
-    void setResponseCallback(ResponseCallback callback) { onResponse_ = callback; }
-    void setErrorCallback(ErrorCallback callback) { onError_ = callback; }
+    std::function<void(const std::string& response, bool done)> onResponse;
+    std::function<void(const std::string& error)> onError;
 
 private:
     ModelManager* modelManager_;
     std::string conversationId_;
     std::vector<ChatMessage> history_;
-    std::string currentResponse_;
+    std::string systemPrompt_;
+    std::atomic<bool> streaming_{false};
 
-    ResponseCallback onResponse_;
-    ErrorCallback onError_;
-
-    std::string buildSystemPrompt() const;
+    bool isStreaming() const { return streaming_; }
+    void buildSystemPrompt();
     std::string generateConversationId() const;
+    std::string formatCodeBlock(const std::string& code, const std::string& language);
 };
 
 } // namespace NexusForge::AI

@@ -93,6 +93,48 @@ struct ViewDef {
     std::string when;
 };
 
+// Extension configuration definition
+struct ConfigDef {
+    std::string id;
+    std::string title;
+    std::string description;
+    std::string type;       // string, number, boolean, array, object
+    std::any defaultValue;
+    std::any minimum;
+    std::any maximum;
+    std::vector<std::any> enumValues;
+    std::vector<std::string> enumDescriptions;
+    std::string order;
+    std::string scope;      // window, resource, languageOverride
+};
+
+// Language contribution definition
+struct LanguageDef {
+    std::string id;
+    std::string name;
+    std::vector<std::string> extensions;
+    std::vector<std::string> aliases;
+    std::vector<std::string> mimetypes;
+    std::vector<std::string> filenames;
+    std::vector<std::string> filenamePatterns;
+    std::string configuration;
+    std::vector<std::string> firstLine;
+};
+
+// Theme contribution definition
+struct ThemeDef {
+    std::string id;
+    std::string label;
+    std::string uiTheme;    // vs-dark, vs-light, hc-black
+    std::string path;
+};
+
+// Snippet contribution definition
+struct SnippetDef {
+    std::string language;
+    std::vector<std::string> paths;
+};
+
 // Extension context
 class ExtensionContext {
 public:
@@ -128,6 +170,7 @@ private:
     std::string extensionPath_;
     std::unordered_map<std::string, std::any> globalState_;
     std::unordered_map<std::string, std::any> workspaceState_;
+    std::unordered_map<std::string, std::string> secrets_;
     std::vector<std::function<void()>> subscriptions_;
 };
 

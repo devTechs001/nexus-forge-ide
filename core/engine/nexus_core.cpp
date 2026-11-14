@@ -4,6 +4,8 @@
 #include "thread_pool.hpp"
 #include "event_system.hpp"
 #include "plugin_loader.hpp"
+#include "extension_manager.hpp"
+#include "workspace_manager.hpp"
 #include "../platform/platform_abstraction.hpp"
 
 #include <chrono>
@@ -12,6 +14,7 @@
 namespace NexusForge::Core {
 
 NexusEngine::NexusEngine() = default;
+
 NexusEngine::~NexusEngine() {
     shutdown();
 }

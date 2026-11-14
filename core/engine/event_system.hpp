@@ -10,6 +10,7 @@
 #include <memory>
 #include <any>
 #include <string>
+#include <algorithm>
 
 namespace NexusForge::Core {
 

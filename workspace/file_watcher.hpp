@@ -1,15 +1,19 @@
 // workspace/file_watcher.hpp
+// File Watcher Header
+
 #pragma once
 
 #include <string>
 #include <vector>
 #include <functional>
 #include <unordered_map>
-#include <memory>
+#include <mutex>
+#include <thread>
+#include <set>
+#include <ctime>
 
-namespace NexusForge::Workspace {
+namespace NexusForge::Core {
 
-// File change event
 enum class FileChangeType {
     Created,
     Modified,
@@ -17,75 +21,60 @@ enum class FileChangeType {
     Renamed
 };
 
-struct FileEvent {
-    std::string path;
-    std::string oldPath;  // For rename
-    FileChangeType type;
-    uint64_t timestamp;
-};
-
-// Watch options
-struct WatchOptions {
-    bool recursive = true;
-    bool ignoreSymlinks = false;
-    std::vector<std::string> excludePatterns;
-    std::vector<std::string> includePatterns;
-};
-
-// File watcher interface
-class FileWatcher {
+class FileSystemWatcher {
 public:
-    FileWatcher();
-    ~FileWatcher();
+    using WatchCallback = std::function<void(const std::string&, FileChangeType)>;
+    using DirectoryWatchCallback = std::function<void(const std::string&, FileChangeType)>;
 
-    // Watch management
-    int watch(const std::string& path, const WatchOptions& options = {});
-    void unwatch(int watchId);
-    void unwatchAll();
+    FileSystemWatcher();
+    ~FileSystemWatcher();
 
-    // Event handling
-    using FileEventHandler = std::function<void(const FileEvent&)>;
-    void setEventHandler(FileEventHandler handler);
+    bool initialize();
+    void shutdown();
 
-    // Start/stop
-    void start();
-    void stop();
-    bool isRunning() const { return running_; }
+    void addWatch(const std::string& path, WatchCallback callback);
+    void addDirectoryWatch(const std::string& path, DirectoryWatchCallback callback, bool recursive = true);
+    void removeWatch(const std::string& path);
 
-    // Ignore patterns
-    void addIgnorePattern(const std::string& pattern);
-    void removeIgnorePattern(const std::string& pattern);
-    bool isIgnored(const std::string& path) const;
+    void pause();
+    void resume();
+    bool isPaused() const;
+
+    void update();
+
+    size_t getWatchCount() const;
 
 private:
-    bool running_ = false;
-    int nextWatchId_ = 1;
-    FileEventHandler eventHandler_;
-    std::vector<std::string> ignorePatterns_;
-
-    struct WatchEntry {
-        int id;
-        std::string path;
-        WatchOptions options;
-        void* platformData = nullptr;
+    struct FileState {
+        bool exists = false;
+        std::time_t lastModified = 0;
+        size_t size = 0;
     };
-    std::vector<WatchEntry> watches_;
 
-    void processEvents();
-    bool matchesPattern(const std::string& path, const std::vector<std::string>& patterns) const;
+    struct DirectoryWatch {
+        std::string path;
+        bool recursive = true;
+        DirectoryWatchCallback callback;
+        std::set<std::string> knownFiles;
+    };
+
+    std::unordered_map<std::string, FileState> watchedPaths_;
+    std::unordered_map<std::string, std::vector<WatchCallback>> fileCallbacks_;
+    std::vector<DirectoryWatch> directoryWatches_;
+
+    std::thread watchThread_;
+    std::mutex mutex_;
+    bool running_ = false;
+    bool paused_ = false;
+
+    void watchLoop();
+    void checkForChanges();
+    void checkDirectoryChanges(DirectoryWatch& watch);
+    void notifyFileChanged(const std::string& path, FileChangeType changeType);
+
+    bool pathExists(const std::string& path) const;
+    std::time_t getFileModifiedTime(const std::string& path) const;
+    size_t getFileSize(const std::string& path) const;
 };
 
-// Platform-specific implementations
-class FileWatcherImpl {
-public:
-    virtual ~FileWatcherImpl() = default;
-    virtual bool start() = 0;
-    virtual void stop() = 0;
-    virtual int watch(const std::string& path, bool recursive) = 0;
-    virtual void unwatch(int watchId) = 0;
-    virtual void setCallback(std::function<void(const FileEvent&)> callback) = 0;
-};
-
-std::unique_ptr<FileWatcherImpl> createPlatformFileWatcher();
-
-} // namespace NexusForge::Workspace
+} // namespace NexusForge::Core

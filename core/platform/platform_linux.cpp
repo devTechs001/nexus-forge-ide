@@ -5,558 +5,348 @@
 
 #include <unistd.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <dirent.h>
 #include <pwd.h>
-#include <dlfcn.h>
-#include <pthread.h>
 #include <cstring>
 #include <fstream>
 #include <sstream>
-#include <algorithm>
-#include <chrono>
+#include <cstdlib>
+#include <ctime>
 #include <thread>
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#include <X11/keysym.h>
+#include <array>
+#include <sys/utsname.h>
+#include <sys/sysinfo.h>
+#include <climits>
 
 namespace NexusForge::Platform {
 
-static Display* g_display = nullptr;
-static Window g_rootWindow = 0;
+PlatformType PlatformAbstraction::currentPlatform_ = PlatformType::Linux;
+bool PlatformAbstraction::initialized_ = false;
 
-PlatformType getCurrentPlatform() {
-    return PlatformType::Linux;
-}
-
-std::string getPlatformName() {
-    return "Linux";
-}
-
-bool isPlatform(PlatformType platform) {
-    return platform == PlatformType::Linux;
-}
-
-bool initialize() {
-    g_display = XOpenDisplay(nullptr);
-    if (g_display) {
-        g_rootWindow = DefaultRootWindow(g_display);
-    }
+bool PlatformAbstraction::initialize() {
+    initialized_ = true;
     return true;
 }
 
-void shutdown() {
-    if (g_display) {
-        XCloseDisplay(g_display);
-        g_display = nullptr;
-    }
+void PlatformAbstraction::shutdown() {
+    initialized_ = false;
 }
 
-void processEvents() {
-    if (!g_display) return;
+PlatformType PlatformAbstraction::getCurrentPlatform() {
+    return currentPlatform_;
+}
+
+SystemInfo PlatformAbstraction::getSystemInfo() {
+    SystemInfo info;
+    info.platform = PlatformType::Linux;
     
-    XEvent event;
-    while (XPending(g_display)) {
-        XNextEvent(g_display, &event);
-        // Process X11 events
+    struct utsname unameData;
+    if (uname(&unameData) == 0) {
+        info.osName = unameData.sysname;
+        info.osVersion = unameData.release;
+        info.architecture = unameData.machine;
     }
-}
-
-void pumpEvents() {
-    processEvents();
-}
-
-void* createMainWindow(int width, int height, void** nativeWindow) {
-    if (!g_display) return nullptr;
     
-    // Create a simple X11 window
-    XSetWindowAttributes attrs;
-    attrs.event_mask = ExposureMask | KeyPressMask | ButtonPressMask | StructureNotifyMask;
+    info.cpuCount = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
     
-    Window window = XCreateWindow(
-        g_display, g_rootWindow,
-        0, 0, width, height, 0,
-        CopyFromParent, InputOutput, CopyFromParent,
-        CWEventMask, &attrs
-    );
+    struct sysinfo sysInfo;
+    if (sysinfo(&sysInfo) == 0) {
+        info.totalMemory = sysInfo.totalram * sysInfo.mem_unit;
+        info.availableMemory = sysInfo.freeram * sysInfo.mem_unit;
+    }
     
-    XStoreName(g_display, window, "NexusForge IDE");
-    XMapWindow(g_display, window);
-    XFlush(g_display);
+    return info;
+}
+
+DirectoryPaths PlatformAbstraction::getDirectoryPaths() {
+    DirectoryPaths paths;
     
-    if (nativeWindow) *nativeWindow = reinterpret_cast<void*>(window);
-    return reinterpret_cast<void*>(window);
-}
-
-void* createSplashWindow(int width, int height, void** nativeWindow) {
-    return createMainWindow(width, height, nativeWindow);
-}
-
-void destroyWindow(void* window) {
-    if (window && g_display) {
-        XDestroyWindow(g_display, reinterpret_cast<Window>(window));
-        XFlush(g_display);
+    const char* home = getenv("HOME");
+    if (!home) {
+        home = getpwuid(getuid())->pw_dir;
     }
+    paths.homeDir = home ? home : "/root";
+    
+    paths.dataDir = paths.homeDir + "/.local/share";
+    paths.configDir = paths.homeDir + "/.config";
+    paths.cacheDir = paths.homeDir + "/.cache";
+    paths.tempDir = "/tmp";
+    paths.documentsDir = paths.homeDir + "/Documents";
+    paths.downloadsDir = paths.homeDir + "/Downloads";
+    paths.appDataDir = paths.configDir + "/NexusForge";
+    
+    return paths;
 }
 
-void showWindow(void* window) {
-    if (window && g_display) {
-        XMapWindow(g_display, reinterpret_cast<Window>(window));
-        XFlush(g_display);
-    }
+std::string PlatformAbstraction::getPlatformName() {
+    return "Linux";
 }
 
-void hideWindow(void* window) {
-    if (window && g_display) {
-        XUnmapWindow(g_display, reinterpret_cast<Window>(window));
-        XFlush(g_display);
-    }
+bool PlatformAbstraction::fileExists(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
-void setWindowTitle(void* window, const char* title) {
-    if (window && g_display && title) {
-        XStoreName(g_display, reinterpret_cast<Window>(window), title);
-        XFlush(g_display);
-    }
+bool PlatformAbstraction::directoryExists(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-void setWindowSize(void* window, int width, int height) {
-    if (window && g_display) {
-        XResizeWindow(g_display, reinterpret_cast<Window>(window), width, height);
-        XFlush(g_display);
-    }
+bool PlatformAbstraction::createDirectory(const std::string& path) {
+    return mkdir(path.c_str(), 0755) == 0 || directoryExists(path);
 }
 
-void setWindowPosition(void* window, int x, int y) {
-    if (window && g_display) {
-        XMoveWindow(g_display, reinterpret_cast<Window>(window), x, y);
-        XFlush(g_display);
-    }
-}
-
-void maximizeWindow(void* window) {
-    // X11 window manager specific
-}
-
-void minimizeWindow(void* window) {
-    if (window && g_display) {
-        XIconifyWindow(g_display, reinterpret_cast<Window>(window), DefaultScreen(g_display));
-        XFlush(g_display);
-    }
-}
-
-void restoreWindow(void* window) {
-    if (window && g_display) {
-        XMapWindow(g_display, reinterpret_cast<Window>(window));
-        XFlush(g_display);
-    }
-}
-
-void setWindowFullscreen(void* window, bool fullscreen) {
-    // X11 fullscreen implementation
-}
-
-std::string getExecutablePath() {
-    char path[PATH_MAX];
-    ssize_t count = readlink("/proc/self/exe", path, PATH_MAX - 1);
-    if (count != -1) {
-        path[count] = '\0';
-        return std::string(path);
-    }
-    return "";
-}
-
-std::string getCurrentDirectory() {
-    char path[PATH_MAX];
-    if (getcwd(path, sizeof(path))) {
-        return std::string(path);
-    }
-    return "";
-}
-
-bool setCurrentDirectory(const std::string& path) {
-    return chdir(path.c_str()) == 0;
-}
-
-bool fileExists(const std::string& path) {
-    struct stat buffer;
-    return (stat(path.c_str(), &buffer) == 0);
-}
-
-bool directoryExists(const std::string& path) {
-    struct stat buffer;
-    return (stat(path.c_str(), &buffer) == 0 && S_ISDIR(buffer.st_mode));
-}
-
-bool createDirectory(const std::string& path) {
-    return mkdir(path.c_str(), 0755) == 0;
-}
-
-bool deleteFile(const std::string& path) {
+bool PlatformAbstraction::deleteFile(const std::string& path) {
     return unlink(path.c_str()) == 0;
 }
 
-bool deleteDirectory(const std::string& path, bool recursive) {
-    if (recursive) {
-        return rmdir(path.c_str()) == 0;
-    }
+bool PlatformAbstraction::deleteDirectory(const std::string& path) {
     return rmdir(path.c_str()) == 0;
 }
 
-std::string readTextFile(const std::string& path) {
+bool PlatformAbstraction::copyFile(const std::string& source, const std::string& dest) {
+    std::ifstream src(source, std::ios::binary);
+    std::ofstream dst(dest, std::ios::binary);
+    dst << src.rdbuf();
+    return true;
+}
+
+bool PlatformAbstraction::moveFile(const std::string& source, const std::string& dest) {
+    return rename(source.c_str(), dest.c_str()) == 0;
+}
+
+std::vector<FileInfo> PlatformAbstraction::listDirectory(const std::string& path) {
+    std::vector<FileInfo> files;
+    DIR* dir = opendir(path.c_str());
+    if (!dir) return files;
+    
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        
+        FileInfo info;
+        info.path = path + "/" + name;
+        info.name = name;
+        
+        struct stat st;
+        if (stat(info.path.c_str(), &st) == 0) {
+            info.isDirectory = S_ISDIR(st.st_mode);
+            info.isFile = S_ISREG(st.st_mode);
+            info.size = st.st_size;
+            info.createdTime = st.st_ctime;
+            info.modifiedTime = st.st_mtime;
+            info.accessedTime = st.st_atime;
+            
+            size_t dotPos = name.rfind('.');
+            if (dotPos != std::string::npos) {
+                info.extension = name.substr(dotPos);
+            }
+        }
+        
+        files.push_back(info);
+    }
+    closedir(dir);
+    return files;
+}
+
+std::string PlatformAbstraction::getCurrentWorkingDirectory() {
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd))) {
+        return cwd;
+    }
+    return ".";
+}
+
+bool PlatformAbstraction::setCurrentWorkingDirectory(const std::string& path) {
+    return chdir(path.c_str()) == 0;
+}
+
+std::string PlatformAbstraction::getAbsolutePath(const std::string& relativePath) {
+    char* abs = realpath(relativePath.c_str(), nullptr);
+    if (abs) {
+        std::string result(abs);
+        free(abs);
+        return result;
+    }
+    return relativePath;
+}
+
+std::string PlatformAbstraction::joinPath(const std::string& path1, const std::string& path2) {
+    if (path1.empty()) return path2;
+    if (path2.empty()) return path1;
+    if (path2[0] == '/') return path2;
+    return path1 + "/" + path2;
+}
+
+std::string PlatformAbstraction::readFile(const std::string& path) {
     std::ifstream file(path);
     if (!file.is_open()) return "";
-    
     std::stringstream buffer;
     buffer << file.rdbuf();
     return buffer.str();
 }
 
-bool writeTextFile(const std::string& path, const std::string& content) {
+bool PlatformAbstraction::writeFile(const std::string& path, const std::string& content) {
     std::ofstream file(path);
     if (!file.is_open()) return false;
     file << content;
     return true;
 }
 
-std::vector<uint8_t> readBinaryFile(const std::string& path) {
+std::vector<char> PlatformAbstraction::readBinaryFile(const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) return {};
     
     std::streamsize size = file.tellg();
     file.seekg(0, std::ios::beg);
     
-    std::vector<uint8_t> buffer(size);
-    file.read(reinterpret_cast<char*>(buffer.data()), size);
+    std::vector<char> buffer(size);
+    file.read(buffer.data(), size);
     return buffer;
 }
 
-bool writeBinaryFile(const std::string& path, const std::vector<uint8_t>& data) {
+bool PlatformAbstraction::writeBinaryFile(const std::string& path, const std::vector<char>& data) {
     std::ofstream file(path, std::ios::binary);
     if (!file.is_open()) return false;
-    file.write(reinterpret_cast<const char*>(data.data()), data.size());
+    file.write(data.data(), data.size());
     return true;
 }
 
-std::string joinPath(const std::string& base, const std::string& path) {
-    if (base.empty()) return path;
-    if (path.empty()) return base;
-    if (path[0] == '/') return path;
-    if (base.back() == '/') return base + path;
-    return base + "/" + path;
-}
-
-std::string getDirectoryName(const std::string& path) {
-    size_t pos = path.find_last_of('/');
-    if (pos == std::string::npos) return "";
-    return path.substr(0, pos);
-}
-
-std::string getFileName(const std::string& path) {
-    size_t pos = path.find_last_of('/');
-    if (pos == std::string::npos) return path;
-    return path.substr(pos + 1);
-}
-
-std::string getExtension(const std::string& path) {
-    size_t pos = path.find_last_of('.');
-    if (pos == std::string::npos) return "";
-    return path.substr(pos + 1);
-}
-
-std::string normalizePath(const std::string& path) {
-    // Basic normalization
-    std::string result = path;
-    std::replace(result.begin(), result.end(), '\\', '/');
-    return result;
-}
-
-std::string getAbsolutePath(const std::string& relativePath) {
-    if (relativePath.empty() || relativePath[0] == '/') {
-        return relativePath;
-    }
-    return joinPath(getCurrentDirectory(), relativePath);
-}
-
-std::string getRelativePath(const std::string& basePath, const std::string& path) {
-    // Simplified implementation
-    return path;
-}
-
-std::string getEnvironmentVariable(const std::string& name) {
-    const char* value = getenv(name.c_str());
-    return value ? value : "";
-}
-
-bool setEnvironmentVariable(const std::string& name, const std::string& value) {
-    return setenv(name.c_str(), value.c_str(), 1) == 0;
-}
-
-std::string getHomeDirectory() {
-    const char* home = getenv("HOME");
-    if (home) return home;
-    
-    struct passwd* pw = getpwuid(getuid());
-    if (pw) return pw->pw_dir;
-    return "";
-}
-
-std::string getDataDirectory() {
-    const char* data = getenv("XDG_DATA_HOME");
-    if (data) return data;
-    return joinPath(getHomeDirectory(), ".local/share");
-}
-
-std::string getConfigDirectory() {
-    const char* config = getenv("XDG_CONFIG_HOME");
-    if (config) return config;
-    return joinPath(getHomeDirectory(), ".config");
-}
-
-std::string getTempDirectory() {
-    const char* temp = getenv("TMPDIR");
-    if (temp) return temp;
-    return "/tmp";
-}
-
-std::string getClipboardText() {
-    // X11 clipboard implementation
-    return "";
-}
-
-void setClipboardText(const std::string& text) {
-    // X11 clipboard implementation
-}
-
-bool hasClipboardText() {
-    return !getClipboardText().empty();
-}
-
-void setCursor(CursorType cursor) {
-    // X11 cursor implementation
-}
-
-void showCursor() {
-    // Show cursor
-}
-
-void hideCursor() {
-    // Hide cursor
-}
-
-bool isCursorVisible() {
-    return true;
-}
-
-uint64_t getCurrentTimeMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()
-    ).count();
-}
-
-double getCurrentTimeSeconds() {
-    return std::chrono::duration<double>(
-        std::chrono::steady_clock::now().time_since_epoch()
-    ).count();
-}
-
-void sleep(int milliseconds) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
-}
-
-void* createThread(void (*func)(void*), void* arg) {
-    pthread_t* thread = new pthread_t;
-    pthread_create(thread, nullptr, (void*(*)(void*))func, arg);
-    return thread;
-}
-
-void joinThread(void* thread) {
-    if (thread) {
-        pthread_join(*reinterpret_cast<pthread_t*>(thread), nullptr);
-        delete reinterpret_cast<pthread_t*>(thread);
-    }
-}
-
-void detachThread(void* thread) {
-    if (thread) {
-        pthread_detach(*reinterpret_cast<pthread_t*>(thread));
-        delete reinterpret_cast<pthread_t*>(thread);
-    }
-}
-
-void yieldThread() {
-    std::this_thread::yield();
-}
-
-void* loadLibrary(const std::string& path) {
-    return dlopen(path.c_str(), RTLD_LAZY);
-}
-
-void unloadLibrary(void* handle) {
-    if (handle) dlclose(handle);
-}
-
-void* getProcAddress(void* handle, const std::string& name) {
-    return dlsym(handle, name.c_str());
-}
-
-int getCurrentProcessId() {
+int PlatformAbstraction::getCurrentProcessId() {
     return getpid();
 }
 
-int getCurrentThreadId() {
-    return gettid();
-}
-
-bool openUrl(const std::string& url) {
-    std::string cmd = "xdg-open " + url + " &";
-    return system(cmd.c_str()) == 0;
-}
-
-bool openFile(const std::string& path) {
-    std::string cmd = "xdg-open " + path + " &";
-    return system(cmd.c_str()) == 0;
-}
-
-bool openFolder(const std::string& path) {
-    std::string cmd = "xdg-open " + path + " &";
-    return system(cmd.c_str()) == 0;
-}
-
-SystemInfo getSystemInfo() {
-    SystemInfo info;
+ProcessInfo PlatformAbstraction::getCurrentProcessInfo() {
+    ProcessInfo info;
+    info.pid = getpid();
     
-    // CPU count
-    info.cpuCount = sysconf(_SC_NPROCESSORS_ONLN);
-    
-    // Memory
-    info.totalMemory = sysconf(_SC_PHYS_PAGES) * sysconf(_SC_PAGESIZE);
-    
-    // OS version
-    info.osVersion = "Linux";
-    
-    // Machine name
-    char hostname[256];
-    if (gethostname(hostname, sizeof(hostname)) == 0) {
-        info.machineName = hostname;
+    char path[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (len != -1) {
+        path[len] = '\0';
+        info.path = path;
+        info.name = path + std::string(path).rfind('/') + 1;
     }
     
     return info;
 }
 
-PowerStatus getPowerStatus() {
-    // Check for power supply
-    if (access("/sys/class/power_supply/BAT0", F_OK) == 0) {
-        return PowerStatus::Battery;
+bool PlatformAbstraction::openExternal(const std::string& url) {
+    return system(("xdg-open \"" + url + "\"").c_str()) == 0;
+}
+
+bool PlatformAbstraction::openFileWithDefaultApp(const std::string& path) {
+    return openExternal(path);
+}
+
+std::string PlatformAbstraction::executeCommand(const std::string& command, int* exitCode) {
+    std::array<char, 128> buffer;
+    std::string result;
+    
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) return "";
+    
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+        result += buffer.data();
     }
-    return PowerStatus::AC;
-}
-
-int getBatteryLevel() {
-    std::ifstream capacity("/sys/class/power_supply/BAT0/capacity");
-    if (capacity.is_open()) {
-        int level;
-        capacity >> level;
-        return level;
+    
+    int status = pclose(pipe);
+    if (exitCode) {
+        *exitCode = WEXITSTATUS(status);
     }
-    return -1;
+    
+    return result;
 }
 
-void showNotification(const std::string& title, const std::string& message) {
-    std::string cmd = "notify-send \"" + title + "\" \"" + message + "\" &";
-    system(cmd.c_str());
+std::string PlatformAbstraction::getEnvironmentVariable(const std::string& name) {
+    const char* value = getenv(name.c_str());
+    return value ? value : "";
 }
 
-void showWarning(const std::string& title, const std::string& message) {
-    showNotification(title, message);
+bool PlatformAbstraction::setEnvironmentVariable(const std::string& name, const std::string& value) {
+    return setenv(name.c_str(), value.c_str(), 1) == 0;
 }
 
-void showError(const std::string& title, const std::string& message) {
-    showNotification(title, message);
+std::vector<std::string> PlatformAbstraction::getCommandLineArguments() {
+    // Implementation would read /proc/self/cmdline
+    return {};
 }
 
-std::string showOpenFileDialog(const std::string& title,
-                                const std::vector<std::pair<std::string, std::string>>& filters) {
-    // Use zenity or kdialog
+std::string PlatformAbstraction::getClipboardText() {
+    // Would use X11/Wayland clipboard API
+    return "";
+}
+
+void PlatformAbstraction::setClipboardText(const std::string& text) {
+    // Would use X11/Wayland clipboard API
+}
+
+bool PlatformAbstraction::hasClipboardText() {
+    return !getClipboardText().empty();
+}
+
+uint64_t PlatformAbstraction::getCurrentTimeMillis() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
+uint64_t PlatformAbstraction::getCurrentTimeMicros() {
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
+void PlatformAbstraction::sleep(int milliseconds) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+}
+
+void PlatformAbstraction::processEvents() {
+    // Platform-specific event processing
+}
+
+void PlatformAbstraction::pumpEvents() {
+    processEvents();
+}
+
+std::string PlatformAbstraction::openFileDialog(const std::string& title,
+                                                  const std::vector<std::string>& filters,
+                                                  const std::string& defaultPath) {
+    // Would use zenity or kdialog
     std::string cmd = "zenity --file-selection --title=\"" + title + "\"";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return "";
-    
-    char buffer[256];
-    std::string result;
-    if (fgets(buffer, sizeof(buffer), pipe)) {
-        result = buffer;
-        if (!result.empty() && result.back() == '\n') {
-            result.pop_back();
-        }
+    if (!defaultPath.empty()) {
+        cmd += " --filename=\"" + defaultPath + "\"";
     }
-    pclose(pipe);
-    return result;
+    return executeCommand(cmd);
 }
 
-std::vector<std::string> showOpenMultipleFileDialog(const std::string& title,
-                                                     const std::vector<std::pair<std::string, std::string>>& filters) {
-    // Use zenity
-    std::string cmd = "zenity --file-selection --multiple --title=\"" + title + "\"";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return {};
-    
-    std::vector<std::string> results;
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe)) {
-        std::string line = buffer;
-        if (!line.empty() && line.back() == '\n') {
-            line.pop_back();
-        }
-        results.push_back(line);
-    }
-    pclose(pipe);
-    return results;
-}
-
-std::string showSaveFileDialog(const std::string& title,
-                                const std::string& defaultName,
-                                const std::vector<std::pair<std::string, std::string>>& filters) {
+std::string PlatformAbstraction::saveFileDialog(const std::string& title,
+                                                  const std::vector<std::string>& filters,
+                                                  const std::string& defaultPath) {
     std::string cmd = "zenity --file-selection --save --title=\"" + title + "\"";
-    if (!defaultName.empty()) {
-        cmd += " --filename=\"" + defaultName + "\"";
+    if (!defaultPath.empty()) {
+        cmd += " --filename=\"" + defaultPath + "\"";
     }
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return "";
-    
-    char buffer[256];
-    std::string result;
-    if (fgets(buffer, sizeof(buffer), pipe)) {
-        result = buffer;
-        if (!result.empty() && result.back() == '\n') {
-            result.pop_back();
-        }
-    }
-    pclose(pipe);
-    return result;
+    return executeCommand(cmd);
 }
 
-std::string showFolderDialog(const std::string& title) {
+std::string PlatformAbstraction::selectDirectoryDialog(const std::string& title,
+                                                        const std::string& defaultPath) {
     std::string cmd = "zenity --file-selection --directory --title=\"" + title + "\"";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return "";
-    
-    char buffer[256];
-    std::string result;
-    if (fgets(buffer, sizeof(buffer), pipe)) {
-        result = buffer;
-        if (!result.empty() && result.back() == '\n') {
-            result.pop_back();
-        }
+    if (!defaultPath.empty()) {
+        cmd += " --filename=\"" + defaultPath + "\"";
     }
-    pclose(pipe);
-    return result;
+    return executeCommand(cmd);
 }
 
-int showMessageBox(const std::string& title, const std::string& message,
-                   MessageBoxType type, MessageBoxButtons buttons) {
+PlatformAbstraction::MessageBoxResult PlatformAbstraction::showMessageBox(
+    const std::string& title,
+    const std::string& message,
+    MessageBoxType type,
+    MessageBoxButton buttons) {
+    
     std::string cmd = "zenity --";
     switch (type) {
         case MessageBoxType::Info: cmd += "info"; break;
@@ -566,8 +356,98 @@ int showMessageBox(const std::string& title, const std::string& message,
     }
     cmd += " --title=\"" + title + "\" --text=\"" + message + "\"";
     
-    int result = system(cmd.c_str());
-    return (result == 0) ? 0 : 1;
+    int exitCode;
+    executeCommand(cmd, &exitCode);
+    
+    if (exitCode == 0) return MessageBoxResult::OK;
+    if (exitCode == 1) return MessageBoxResult::Cancel;
+    return MessageBoxResult::Cancel;
+}
+
+void PlatformAbstraction::setThreadName(const std::string& name) {
+    // pthread_setname_np not portable, skipping
+}
+
+int PlatformAbstraction::getCurrentThreadId() {
+    return gettid();
+}
+
+std::string PlatformAbstraction::getHostname() {
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        return hostname;
+    }
+    return "localhost";
+}
+
+std::string PlatformAbstraction::getUserName() {
+    const char* user = getenv("USER");
+    if (!user) {
+        user = getpwuid(getuid())->pw_name;
+    }
+    return user ? user : "unknown";
+}
+
+bool PlatformAbstraction::isNetworkAvailable() {
+    return system("ping -c1 8.8.8.8 > /dev/null 2>&1") == 0;
+}
+
+// Window management implementations (stubs for now - would use GLFW/X11 in production)
+void* PlatformAbstraction::createMainWindow(const std::string& title, int width, int height) {
+    // In production, would create actual window using GLFW/X11
+    return reinterpret_cast<void*>(1);  // Dummy handle
+}
+
+void* PlatformAbstraction::createSplashWindow(int width, int height) {
+    return reinterpret_cast<void*>(2);  // Dummy handle
+}
+
+void PlatformAbstraction::destroyWindow(void* window) {
+    // Would destroy actual window
+}
+
+void PlatformAbstraction::showWindow(void* window) {
+    // Would show window
+}
+
+void PlatformAbstraction::hideWindow(void* window) {
+    // Would hide window
+}
+
+void PlatformAbstraction::setWindowTitle(void* window, const char* title) {
+    // Would set window title
+}
+
+void PlatformAbstraction::setWindowSize(void* window, int width, int height) {
+    // Would set window size
+}
+
+void PlatformAbstraction::setWindowPosition(void* window, int x, int y) {
+    // Would set window position
+}
+
+void PlatformAbstraction::maximizeWindow(void* window) {
+    // Would maximize window
+}
+
+void PlatformAbstraction::minimizeWindow(void* window) {
+    // Would minimize window
+}
+
+void PlatformAbstraction::restoreWindow(void* window) {
+    // Would restore window
+}
+
+void PlatformAbstraction::setWindowFullscreen(void* window, bool fullscreen) {
+    // Would set fullscreen
+}
+
+bool PlatformAbstraction::isWindowFullscreen(void* window) {
+    return false;
+}
+
+void* PlatformAbstraction::getNativeWindowHandle(void* window) {
+    return window;
 }
 
 } // namespace NexusForge::Platform

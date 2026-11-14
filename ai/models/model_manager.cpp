@@ -50,7 +50,7 @@ void ModelManager::registerProvider(AIProvider type, std::unique_ptr<IAIProvider
     }
 }
 
-IAIProvider* ModelManager::getProvider(AIProvider type) {
+IAIProvider* ModelManager::getProvider(AIProvider type) const {
     auto it = providers_.find(type);
     if (it != providers_.end()) {
         return it->second.get();
@@ -58,7 +58,7 @@ IAIProvider* ModelManager::getProvider(AIProvider type) {
     return nullptr;
 }
 
-IAIProvider* ModelManager::getDefaultProvider() {
+IAIProvider* ModelManager::getDefaultProvider() const {
     return getProvider(defaultProvider_);
 }
 
@@ -143,21 +143,10 @@ std::future<std::string> ModelManager::explainCode(
     request.language = language;
     request.analysisType = "explain";
     
-    auto future = analyzeCode(request);
-    
-    // Transform to string result
-    auto promise = std::make_shared<std::promise<std::string>>();
-    
-    future.then([promise](std::future<CodeAnalysisResult> f) {
-        try {
-            auto result = f.get();
-            promise->set_value(result.detailedAnalysis);
-        } catch (...) {
-            promise->set_exception(std::current_exception());
-        }
+    return std::async(std::launch::async, [this, request]() -> std::string {
+        auto result = analyzeCode(request).get();
+        return result.detailedAnalysis;
     });
-    
-    return promise->get_future();
 }
 
 std::future<std::string> ModelManager::refactorCode(
@@ -169,24 +158,13 @@ std::future<std::string> ModelManager::refactorCode(
     request.language = language;
     request.analysisType = "refactor";
     
-    auto future = analyzeCode(request);
-    
-    auto promise = std::make_shared<std::promise<std::string>>();
-    
-    future.then([promise](std::future<CodeAnalysisResult> f) {
-        try {
-            auto result = f.get();
-            if (result.refactoredCode) {
-                promise->set_value(*result.refactoredCode);
-            } else {
-                promise->set_value("");
-            }
-        } catch (...) {
-            promise->set_exception(std::current_exception());
+    return std::async(std::launch::async, [this, request]() -> std::string {
+        auto result = analyzeCode(request).get();
+        if (result.refactoredCode) {
+            return *result.refactoredCode;
         }
+        return "";
     });
-    
-    return promise->get_future();
 }
 
 std::future<std::string> ModelManager::generateTests(
@@ -201,20 +179,10 @@ std::future<std::string> ModelManager::generateTests(
         "Generate " + framework + " tests for this " + language + " code:\n\n" + code
     ));
     
-    auto future = chat(request);
-    
-    auto promise = std::make_shared<std::promise<std::string>>();
-    
-    future.then([promise](std::future<ChatResponse> f) {
-        try {
-            auto result = f.get();
-            promise->set_value(result.content);
-        } catch (...) {
-            promise->set_exception(std::current_exception());
-        }
+    return std::async(std::launch::async, [this, request]() -> std::string {
+        auto result = chat(request).get();
+        return result.content;
     });
-    
-    return promise->get_future();
 }
 
 std::future<std::string> ModelManager::generateDocumentation(
@@ -228,20 +196,10 @@ std::future<std::string> ModelManager::generateDocumentation(
         "Generate documentation for this " + language + " code:\n\n" + code
     ));
     
-    auto future = chat(request);
-    
-    auto promise = std::make_shared<std::promise<std::string>>();
-    
-    future.then([promise](std::future<ChatResponse> f) {
-        try {
-            auto result = f.get();
-            promise->set_value(result.content);
-        } catch (...) {
-            promise->set_exception(std::current_exception());
-        }
+    return std::async(std::launch::async, [this, request]() -> std::string {
+        auto result = chat(request).get();
+        return result.content;
     });
-    
-    return promise->get_future();
 }
 
 std::future<std::vector<std::string>> ModelManager::findBugs(
@@ -252,20 +210,10 @@ std::future<std::vector<std::string>> ModelManager::findBugs(
     request.language = language;
     request.analysisType = "bugs";
     
-    auto future = analyzeCode(request);
-    
-    auto promise = std::make_shared<std::promise<std::vector<std::string>>>();
-    
-    future.then([promise](std::future<CodeAnalysisResult> f) {
-        try {
-            auto result = f.get();
-            promise->set_value(result.issues);
-        } catch (...) {
-            promise->set_exception(std::current_exception());
-        }
+    return std::async(std::launch::async, [this, request]() -> std::vector<std::string> {
+        auto result = analyzeCode(request).get();
+        return result.issues;
     });
-    
-    return promise->get_future();
 }
 
 std::future<std::string> ModelManager::translateCode(
@@ -280,20 +228,10 @@ std::future<std::string> ModelManager::translateCode(
         "Translate this " + fromLanguage + " code to " + toLanguage + ":\n\n" + code
     ));
     
-    auto future = chat(request);
-    
-    auto promise = std::make_shared<std::promise<std::string>>();
-    
-    future.then([promise](std::future<ChatResponse> f) {
-        try {
-            auto result = f.get();
-            promise->set_value(result.content);
-        } catch (...) {
-            promise->set_exception(std::current_exception());
-        }
+    return std::async(std::launch::async, [this, request]() -> std::string {
+        auto result = chat(request).get();
+        return result.content;
     });
-    
-    return promise->get_future();
 }
 
 std::future<std::vector<float>> ModelManager::getEmbedding(const std::string& text) {

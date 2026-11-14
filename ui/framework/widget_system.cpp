@@ -1,66 +1,58 @@
 // ui/framework/widget_system.cpp
 #include "widget_system.hpp"
+#include <algorithm>
+#include <cmath>
 
 namespace NexusForge::UI {
 
+// Widget implementation
 Widget::Widget() = default;
 
 Widget::~Widget() {
     for (auto& child : children_) {
-        child->setParent(nullptr);
+        if (child) {
+            child->parent_ = nullptr;
+        }
     }
-}
-
-void Widget::setId(const std::string& id) {
-    id_ = id;
-}
-
-const std::string& Widget::getId() const {
-    return id_;
-}
-
-void Widget::addClass(const std::string& className) {
-    if (std::find(classes_.begin(), classes_.end(), className) == classes_.end()) {
-        classes_.push_back(className);
-    }
-}
-
-void Widget::removeClass(const std::string& className) {
-    classes_.erase(
-        std::remove(classes_.begin(), classes_.end(), className),
-        classes_.end()
-    );
-}
-
-bool Widget::hasClass(const std::string& className) const {
-    return std::find(classes_.begin(), classes_.end(), className) != classes_.end();
 }
 
 void Widget::setPosition(float x, float y) {
+    Rect oldBounds = bounds_;
     bounds_.x = x;
     bounds_.y = y;
-    markDirty();
+    if (oldBounds != bounds_) {
+        onBoundsChanged(oldBounds, bounds_);
+        markDirty();
+    }
 }
 
 void Widget::setSize(float width, float height) {
+    Rect oldBounds = bounds_;
     bounds_.width = width;
     bounds_.height = height;
-    markDirty();
+    if (oldBounds != bounds_) {
+        onBoundsChanged(oldBounds, bounds_);
+        markDirty();
+    }
 }
 
 void Widget::setBounds(const Rect& bounds) {
+    Rect oldBounds = bounds_;
     bounds_ = bounds;
-    markDirty();
+    if (oldBounds != bounds_) {
+        onBoundsChanged(oldBounds, bounds_);
+        markDirty();
+    }
 }
 
 void Widget::setConstraints(const SizeConstraints& constraints) {
     constraints_ = constraints;
-    markDirty();
+    invalidateLayout();
 }
 
 Rect Widget::getGlobalBounds() const {
     Rect global = bounds_;
-    Widget* parent = parent_;
+    const Widget* parent = parent_;
     while (parent) {
         global.x += parent->bounds_.x;
         global.y += parent->bounds_.y;
@@ -69,33 +61,15 @@ Rect Widget::getGlobalBounds() const {
     return global;
 }
 
-void Widget::setMargin(const EdgeInsets& margin) {
-    margin_ = margin;
-    markDirty();
-}
-
 void Widget::setAlignment(HAlignment h, VAlignment v) {
     hAlignment_ = h;
     vAlignment_ = v;
-    markDirty();
-}
-
-void Widget::setVisible(bool visible) {
-    visible_ = visible;
-    markDirty();
-}
-
-void Widget::setEnabled(bool enabled) {
-    enabled_ = enabled;
-    if (!enabled) {
-        clearFocus();
-    }
-    markDirty();
+    invalidateLayout();
 }
 
 bool Widget::isVisibleInHierarchy() const {
     if (!visible_) return false;
-    Widget* parent = parent_;
+    const Widget* parent = parent_;
     while (parent) {
         if (!parent->visible_) return false;
         parent = parent->parent_;
@@ -104,18 +78,17 @@ bool Widget::isVisibleInHierarchy() const {
 }
 
 void Widget::requestFocus() {
-    if (focusPolicy_ != FocusPolicy::NoFocus && enabled_) {
-        // Focus handling would be done by focus manager
+    if (focusPolicy_ != FocusPolicy::NoFocus) {
+        onFocusGained();
     }
 }
 
 void Widget::clearFocus() {
-    // Clear focus
+    onFocusLost();
 }
 
 bool Widget::hasFocus() const {
-    // Check if widget has focus
-    return false;
+    return state_ == WidgetState::Focused;
 }
 
 void Widget::setParent(Widget* parent) {
@@ -123,12 +96,11 @@ void Widget::setParent(Widget* parent) {
 }
 
 void Widget::addChild(Ptr child) {
-    if (child) {
-        child->setParent(this);
-        children_.push_back(child);
-        onChildAdded(child);
-        markDirty();
-    }
+    if (!child) return;
+    children_.push_back(child);
+    child->setParent(this);
+    onChildAdded(child);
+    invalidateLayout();
 }
 
 void Widget::removeChild(Ptr child) {
@@ -137,18 +109,19 @@ void Widget::removeChild(Ptr child) {
         (*it)->setParent(nullptr);
         onChildRemoved(*it);
         children_.erase(it);
-        markDirty();
+        invalidateLayout();
     }
 }
 
 void Widget::removeChild(const std::string& id) {
-    auto it = std::find_if(children_.begin(), children_.end(),
-        [&id](const Ptr& child) { return child->getId() == id; });
-    if (it != children_.end()) {
-        (*it)->setParent(nullptr);
-        onChildRemoved(*it);
-        children_.erase(it);
-        markDirty();
+    for (auto it = children_.begin(); it != children_.end(); ++it) {
+        if (*it && (*it)->getId() == id) {
+            (*it)->setParent(nullptr);
+            onChildRemoved(*it);
+            children_.erase(it);
+            invalidateLayout();
+            break;
+        }
     }
 }
 
@@ -160,11 +133,9 @@ void Widget::removeFromParent() {
 
 Widget* Widget::findChild(const std::string& id) const {
     for (const auto& child : children_) {
-        if (child->getId() == id) {
+        if (child && child->getId() == id) {
             return child.get();
         }
-        Widget* found = child->findChild(id);
-        if (found) return found;
     }
     return nullptr;
 }
@@ -172,52 +143,72 @@ Widget* Widget::findChild(const std::string& id) const {
 void Widget::render(RenderEngine& renderer) {
     if (!isVisibleInHierarchy()) return;
 
-    renderer.pushTransform();
-    renderer.translate(bounds_.x, bounds_.y);
-
     // Render background
-    if (style_.backgroundColor.a > 0) {
-        renderer.drawRect(Rect(0, 0, bounds_.width, bounds_.height), style_.backgroundColor);
+    if (style_.backgroundColor.isGradient) {
+        // Draw gradient background
+        Gradient gradient;
+        gradient.type = GradientType::Linear;
+        for (const auto& stop : style_.backgroundColor.stops) {
+            gradient.stops.push_back({stop.position, Color(stop.r, stop.g, stop.b, stop.a)});
+        }
+        gradient.startPoint = {bounds_.x, bounds_.y};
+        gradient.endPoint = {bounds_.x + bounds_.width, bounds_.y + bounds_.height};
+        
+        DrawCommand cmd;
+        cmd.type = DrawCommandType::DrawGradient;
+        cmd.rect = bounds_;
+        cmd.gradient = gradient;
+        cmd.useGradient = true;
+        // renderer.executeCommand(cmd);
+    } else {
+        auto color = getCurrentBackgroundColor();
+        if (color.a > 0) {
+            if (style_.borderRadius > 0) {
+                renderer.drawRoundedRect(bounds_, color, style_.borderRadius);
+            } else {
+                renderer.drawRect(bounds_, color);
+            }
+        }
     }
 
     // Render border
     if (style_.borderWidth > 0) {
-        // Border rendering
+        auto borderColor = getCurrentForegroundColor();
+        renderer.drawRoundedRect(bounds_, borderColor, style_.borderRadius);
     }
-
-    renderer.popTransform();
 
     renderChildren(renderer);
 }
 
 void Widget::renderChildren(RenderEngine& renderer) {
     for (auto& child : children_) {
-        if (child->isVisibleInHierarchy()) {
+        if (child) {
             child->render(renderer);
         }
     }
 }
 
 Vec2 Widget::measure(float availableWidth, float availableHeight) {
-    float width = bounds_.width;
-    float height = bounds_.height;
+    float width = constraints_.preferredWidth >= 0 ? 
+                  constraints_.preferredWidth : availableWidth;
+    float height = constraints_.preferredHeight >= 0 ? 
+                   constraints_.preferredHeight : availableHeight;
 
-    // Apply constraints
-    if (constraints_.preferredWidth >= 0) {
-        width = constraints_.preferredWidth;
-    }
-    if (constraints_.preferredHeight >= 0) {
-        height = constraints_.preferredHeight;
-    }
-
-    width = std::clamp(width, constraints_.minWidth, constraints_.maxWidth);
-    height = std::clamp(height, constraints_.minHeight, constraints_.maxHeight);
+    width = std::clamp(width, constraints_.minWidth, 
+                       std::min(constraints_.maxWidth, availableWidth));
+    height = std::clamp(height, constraints_.minHeight, 
+                        std::min(constraints_.maxHeight, availableHeight));
 
     return Vec2(width, height);
 }
 
 void Widget::arrange(const Rect& finalRect) {
+    Rect oldBounds = bounds_;
     bounds_ = finalRect;
+    if (oldBounds != bounds_) {
+        onBoundsChanged(oldBounds, bounds_);
+    }
+    markDirty();
 }
 
 void Widget::invalidateLayout() {
@@ -231,60 +222,50 @@ void Widget::invalidateLayout() {
 void Widget::update(double deltaTime) {
     updateAnimations(deltaTime);
     for (auto& child : children_) {
-        child->update(deltaTime);
+        if (child) {
+            child->update(deltaTime);
+        }
     }
 }
 
 void Widget::updateAnimations(double deltaTime) {
     for (auto it = animations_.begin(); it != animations_.end();) {
-        it->elapsed += static_cast<float>(deltaTime);
-
-        float progress = it->elapsed / it->duration;
-        if (progress >= 1.0f) {
-            progress = 1.0f;
+        it->elapsed += deltaTime;
+        float t = std::min(it->elapsed / it->duration, 1.0f);
+        
+        if (it->easingFunction) {
+            t = it->easingFunction(t);
+        }
+        
+        float value = it->startValue + (it->endValue - it->startValue) * t;
+        // Apply animation value to property
+        
+        if (t >= 1.0f) {
             if (it->onComplete) {
                 it->onComplete();
             }
-            it = animations_.erase(it);
-        } else {
-            float easedProgress = it->easingFunction ? it->easingFunction(progress) : progress;
-            // Apply animation value
-            ++it;
+            if (it->loop) {
+                it->elapsed = 0;
+                if (it->pingPong) {
+                    std::swap(it->startValue, it->endValue);
+                }
+            } else {
+                it = animations_.erase(it);
+                continue;
+            }
         }
+        ++it;
     }
 }
 
 bool Widget::handleEvent(Core::Event& event) {
-    // Check children first (bottom-up event propagation)
-    for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
-        if ((*it)->isVisibleInHierarchy() && (*it)->handleEvent(event)) {
-            return true;
-        }
-    }
-
-    // Then handle at this level
     if (!isEnabled()) return false;
 
-    if (auto* mouseEvent = dynamic_cast<Core::MouseMoveEvent*>(&event)) {
-        return onMouseMove(*mouseEvent);
-    }
-    if (auto* mouseEvent = dynamic_cast<Core::MouseButtonPressEvent*>(&event)) {
-        return onMouseDown(*mouseEvent);
-    }
-    if (auto* mouseEvent = dynamic_cast<Core::MouseButtonReleaseEvent*>(&event)) {
-        return onMouseUp(*mouseEvent);
-    }
-    if (auto* scrollEvent = dynamic_cast<Core::ScrollEvent*>(&event)) {
-        return onScroll(*scrollEvent);
-    }
-    if (auto* keyEvent = dynamic_cast<Core::KeyPressEvent*>(&event)) {
-        return onKeyDown(*keyEvent);
-    }
-    if (auto* keyEvent = dynamic_cast<Core::KeyReleaseEvent*>(&event)) {
-        return onKeyUp(*keyEvent);
-    }
-    if (auto* charEvent = dynamic_cast<Core::CharInputEvent*>(&event)) {
-        return onCharInput(*charEvent);
+    // Try children first (bottom-up)
+    for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
+        if (*it && (*it)->handleEvent(event)) {
+            return true;
+        }
     }
 
     return false;
@@ -293,38 +274,44 @@ bool Widget::handleEvent(Core::Event& event) {
 bool Widget::onMouseEnter(const Core::MouseMoveEvent& event) {
     setState(WidgetState::Hovered);
     if (onHover_) onHover_();
-    return false;
+    return true;
 }
 
 bool Widget::onMouseLeave(const Core::MouseMoveEvent& event) {
     if (state_ == WidgetState::Hovered) {
         setState(WidgetState::Normal);
     }
-    return false;
+    return true;
 }
 
 bool Widget::onMouseMove(const Core::MouseMoveEvent& event) {
     if (dragging_ && onDrag_) {
-        onDrag_(Vec2(event.x, event.y));
+        Vec2 delta = Vec2(event.x, event.y) - dragStartPos_;
+        onDrag_(delta);
     }
     return false;
 }
 
 bool Widget::onMouseDown(const Core::MouseButtonPressEvent& event) {
-    if (bounds_.contains(static_cast<float>(event.x), static_cast<float>(event.y))) {
+    setState(WidgetState::Pressed);
+    mouseDown_ = true;
+    dragStartPos_ = Vec2(event.x, event.y);
+    
+    if (focusPolicy_ == FocusPolicy::ClickFocus) {
         requestFocus();
-        setState(WidgetState::Pressed);
-        dragging_ = true;
-        dragStartPos_ = Vec2(static_cast<float>(event.x), static_cast<float>(event.y));
     }
-    return false;
+    
+    return true;
 }
 
 bool Widget::onMouseUp(const Core::MouseButtonReleaseEvent& event) {
-    setState(WidgetState::Normal);
-    dragging_ = false;
-    if (onDragEnd_) {
-        onDragEnd_(Vec2(static_cast<float>(event.x), static_cast<float>(event.y)));
+    if (mouseDown_) {
+        setState(WidgetState::Hovered);
+        mouseDown_ = false;
+        if (dragging_ && onDragEnd_) {
+            onDragEnd_(Vec2(event.x, event.y) - dragStartPos_);
+            dragging_ = false;
+        }
     }
     return false;
 }
@@ -374,15 +361,15 @@ bool Widget::onFocusLost() {
 }
 
 bool Widget::onTouchStart(const Core::TouchEvent& event) {
-    return false;
+    return onMouseDown(Core::MouseButtonPressEvent(0, event.touches[0].x, event.touches[0].y));
 }
 
 bool Widget::onTouchMove(const Core::TouchEvent& event) {
-    return false;
+    return onMouseMove(Core::MouseMoveEvent(event.touches[0].x, event.touches[0].y));
 }
 
 bool Widget::onTouchEnd(const Core::TouchEvent& event) {
-    return false;
+    return onMouseUp(Core::MouseButtonReleaseEvent(0, event.touches[0].x, event.touches[0].y));
 }
 
 bool Widget::onGesture(const Core::GestureEvent& event) {
@@ -409,21 +396,42 @@ void Widget::setState(WidgetState state) {
     if (state_ != state) {
         state_ = state;
         markDirty();
+        onStyleChanged();
     }
 }
 
 Color Widget::getCurrentBackgroundColor() const {
-    if (!enabled_) return style_.disabledColor;
-    switch (state_) {
-        case WidgetState::Hovered: return style_.hoverColor;
-        case WidgetState::Pressed: return style_.pressedColor;
-        default: return style_.backgroundColor;
+    Color base;
+    
+    if (!enabled_ && style_.disabledColor.stops.size() > 0) {
+        const auto& s = style_.disabledColor.stops[0];
+        base = Color(s.r, s.g, s.b, s.a);
+    } else if (state_ == WidgetState::Pressed && style_.pressedColor.stops.size() > 0) {
+        const auto& s = style_.pressedColor.stops[0];
+        base = Color(s.r, s.g, s.b, s.a);
+    } else if (state_ == WidgetState::Hovered && style_.hoverColor.stops.size() > 0) {
+        const auto& s = style_.hoverColor.stops[0];
+        base = Color(s.r, s.g, s.b, s.a);
+    } else if (style_.backgroundColor.stops.size() > 0) {
+        const auto& s = style_.backgroundColor.stops[0];
+        base = Color(s.r, s.g, s.b, s.a);
+    } else {
+        base = Color(0, 0, 0, 0);
     }
+    
+    return base;
 }
 
 Color Widget::getCurrentForegroundColor() const {
-    if (!enabled_) return style_.disabledColor;
-    return style_.foregroundColor;
+    if (!enabled_ && style_.disabledColor.stops.size() > 0) {
+        const auto& s = style_.disabledColor.stops[0];
+        return Color(s.r, s.g, s.b, s.a);
+    }
+    if (style_.foregroundColor.stops.size() > 0) {
+        const auto& s = style_.foregroundColor.stops[0];
+        return Color(s.r, s.g, s.b, s.a);
+    }
+    return Color::White();
 }
 
 // Container implementation
@@ -436,7 +444,45 @@ void Container::render(RenderEngine& renderer) {
 }
 
 Vec2 Container::measure(float availableWidth, float availableHeight) {
-    return Widget::measure(availableWidth, availableHeight);
+    float width = constraints_.minWidth;
+    float height = constraints_.minHeight;
+
+    // Measure all children
+    for (const auto& child : children_) {
+        if (child) {
+            Vec2 childSize = child->measure(availableWidth - style_.padding.horizontal(),
+                                            availableHeight - style_.padding.vertical());
+            
+            if (layoutDirection_ == LayoutDirection::LeftToRight ||
+                layoutDirection_ == LayoutDirection::RightToLeft) {
+                width += childSize.x;
+                height = std::max(height, childSize.y);
+            } else {
+                width = std::max(width, childSize.x);
+                height += childSize.y;
+            }
+        }
+    }
+
+    // Add padding
+    width += style_.padding.horizontal();
+    height += style_.padding.vertical();
+
+    // Add spacing
+    if (children_.size() > 1) {
+        if (layoutDirection_ == LayoutDirection::LeftToRight ||
+            layoutDirection_ == LayoutDirection::RightToLeft) {
+            width += spacing_ * (children_.size() - 1);
+        } else {
+            height += spacing_ * (children_.size() - 1);
+        }
+    }
+
+    // Apply constraints
+    width = std::clamp(width, constraints_.minWidth, constraints_.maxWidth);
+    height = std::clamp(height, constraints_.minHeight, constraints_.maxHeight);
+
+    return Vec2(width, height);
 }
 
 void Container::arrange(const Rect& finalRect) {
@@ -445,9 +491,58 @@ void Container::arrange(const Rect& finalRect) {
 }
 
 void Container::layoutChildren(const Rect& contentRect) {
-    // Default layout - children positioned absolutely
+    float x = contentRect.x + style_.padding.left;
+    float y = contentRect.y + style_.padding.top;
+    float availableWidth = contentRect.width - style_.padding.horizontal();
+    float availableHeight = contentRect.height - style_.padding.vertical();
+
     for (auto& child : children_) {
-        child->arrange(child->getBounds());
+        if (!child) continue;
+
+        Vec2 childSize = child->measure(availableWidth, availableHeight);
+        Rect childBounds(x, y, childSize.x, childSize.y);
+
+        // Apply alignment
+        switch (hAlignment_) {
+            case HAlignment::Center:
+                childBounds.x = contentRect.x + (contentRect.width - childSize.x) / 2;
+                break;
+            case HAlignment::Right:
+                childBounds.x = contentRect.x + contentRect.width - childSize.x - style_.padding.right;
+                break;
+            case HAlignment::Stretch:
+                childBounds.width = availableWidth;
+                break;
+            default:
+                break;
+        }
+
+        switch (vAlignment_) {
+            case VAlignment::Center:
+                childBounds.y = contentRect.y + (contentRect.height - childSize.y) / 2;
+                break;
+            case VAlignment::Bottom:
+                childBounds.y = contentRect.y + contentRect.height - childSize.y - style_.padding.bottom;
+                break;
+            case VAlignment::Stretch:
+                childBounds.height = availableHeight;
+                break;
+            default:
+                break;
+        }
+
+        child->arrange(childBounds);
+
+        // Position next child
+        if (layoutDirection_ == LayoutDirection::LeftToRight) {
+            x += childSize.x + spacing_;
+        } else if (layoutDirection_ == LayoutDirection::RightToLeft) {
+            x -= childSize.x + spacing_;
+        } else if (layoutDirection_ == LayoutDirection::TopToBottom) {
+            y += childSize.y + spacing_;
+        } else if (layoutDirection_ == LayoutDirection::BottomToTop) {
+            y -= childSize.y + spacing_;
+        }
     }
 }
 

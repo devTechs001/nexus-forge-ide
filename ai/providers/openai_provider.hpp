@@ -21,8 +21,8 @@ public:
     void chatStream(const ChatRequest& request, StreamCallback callback) override;
     std::future<CodeAnalysisResult> analyzeCode(const CodeAnalysisRequest& request) override;
 
-    bool isReady() const override { return initialized_ && !apiKey_.empty(); }
-    const ModelConfig& getConfig() const override { return config_; }
+    bool isReady() const override;
+    const ModelConfig& getConfig() const override;
 
     // OpenAI-specific
     void setApiKey(const std::string& key) { apiKey_ = key; }
@@ -41,7 +41,10 @@ private:
     std::string model_ = "gpt-4";
     bool initialized_ = false;
 
+    ModelCapabilities capabilities_;
     std::string buildCompletionPrompt(const CompletionRequest& request);
+    std::string buildAnalysisPrompt(const CodeAnalysisRequest& request);
+    std::string escapeJson(const std::string& s);
     std::vector<CompletionResult> parseCompletionResponse(const std::string& json);
     ChatResponse parseChatResponse(const std::string& json);
     CodeAnalysisResult parseAnalysisResponse(const std::string& json);

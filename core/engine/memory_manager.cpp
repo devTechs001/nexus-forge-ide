@@ -113,6 +113,9 @@ bool MemoryManager::initialize(size_t heapSize) {
     // Initialize frame arena (16MB)
     frameArena_ = std::make_unique<ArenaAllocator>(16 * 1024 * 1024);
 
+    // Set global memory manager
+    GlobalMemory::setManager(this);
+
     return true;
 }
 

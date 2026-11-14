@@ -151,35 +151,6 @@ private:
     FormFactor currentFormFactor_ = FormFactor::Desktop;
 };
 
-// Mobile-optimized toolbar
-class MobileToolbar : public Container {
-public:
-    MobileToolbar();
-
-    void setTitle(const std::string& title) { title_ = title; markDirty(); }
-    void setSubtitle(const std::string& subtitle) { subtitle_ = subtitle; markDirty(); }
-    void setLeadingIcon(const std::string& icon, std::function<void()> onClick);
-    void setTrailingActions(const std::vector<std::pair<std::string, std::function<void()>>>& actions);
-
-    void setElevation(float elevation) { elevation_ = elevation; }
-    void setCollapsible(bool collapsible) { collapsible_ = collapsible; }
-    void setCollapsed(bool collapsed);
-
-    void render(RenderEngine& renderer) override;
-    Vec2 measure(float availableWidth, float availableHeight) override;
-
-private:
-    std::string title_;
-    std::string subtitle_;
-    std::string leadingIcon_;
-    std::function<void()> leadingAction_;
-    std::vector<std::pair<std::string, std::function<void()>>> trailingActions_;
-    float elevation_ = 4.0f;
-    bool collapsible_ = false;
-    bool collapsed_ = false;
-    float collapseProgress_ = 0.0f;
-};
-
 // Bottom navigation bar
 class BottomNavigationBar : public Container {
 public:
@@ -202,7 +173,6 @@ public:
     void render(RenderEngine& renderer) override;
     Vec2 measure(float availableWidth, float availableHeight) override;
     bool onMouseDown(const Core::MouseButtonPressEvent& event) override;
-    bool onTouchStart(const Core::TouchEvent& event) override;
 
 private:
     std::vector<NavItem> items_;
@@ -227,7 +197,6 @@ public:
     void render(RenderEngine& renderer) override;
     Vec2 measure(float availableWidth, float availableHeight) override;
     bool onMouseDown(const Core::MouseButtonPressEvent& event) override;
-    bool onTouchStart(const Core::TouchEvent& event) override;
 
 private:
     std::string icon_;
@@ -259,10 +228,6 @@ public:
 
     void render(RenderEngine& renderer) override;
     void update(double deltaTime) override;
-    bool onTouchStart(const Core::TouchEvent& event) override;
-    bool onTouchMove(const Core::TouchEvent& event) override;
-    bool onTouchEnd(const Core::TouchEvent& event) override;
-    bool onGesture(const Core::GestureEvent& event) override;
 
 private:
     Position position_;
@@ -293,9 +258,6 @@ public:
     std::function<void()> onRefresh;
 
     void render(RenderEngine& renderer) override;
-    bool onTouchStart(const Core::TouchEvent& event) override;
-    bool onTouchMove(const Core::TouchEvent& event) override;
-    bool onTouchEnd(const Core::TouchEvent& event) override;
 
 private:
     Widget::Ptr content_;

@@ -38,6 +38,11 @@ struct WorkerInfo {
     std::string currentTask;
     std::atomic<bool> busy{false};
     uint64_t tasksCompleted{0};
+    
+    WorkerInfo() = default;
+    WorkerInfo(const WorkerInfo& other) 
+        : id(other.id), currentTask(other.currentTask), 
+          busy(other.busy.load()), tasksCompleted(other.tasksCompleted) {}
 };
 
 class ThreadPool {

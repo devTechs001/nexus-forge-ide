@@ -40,7 +40,6 @@ public:
     bool canUndo() const { return !undoStack_.empty(); }
     bool canRedo() const { return !redoStack_.empty(); }
 
-private:
     struct Node {
         std::string text;
         size_t length;
@@ -62,11 +61,12 @@ private:
     std::vector<std::shared_ptr<Node>> undoStack_;
     std::vector<std::shared_ptr<Node>> redoStack_;
     
+    std::shared_ptr<Node> buildTree(const std::string& text, size_t start, size_t end);
     std::shared_ptr<Node> concat(std::shared_ptr<Node> left, std::shared_ptr<Node> right);
     std::shared_ptr<Node> insert(std::shared_ptr<Node> node, size_t pos, const std::string& text);
     std::shared_ptr<Node> remove(std::shared_ptr<Node> node, size_t pos, size_t len);
     char at(std::shared_ptr<Node> node, size_t pos) const;
-    void collectText(std::shared_ptr<Node> node, std::string& result) const;
+    void collectText(std::shared_ptr<Node> node, size_t start, size_t len, std::string& result) const;
     size_t calculateLength(std::shared_ptr<Node> node) const;
 };
 

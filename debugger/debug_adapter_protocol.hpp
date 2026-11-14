@@ -251,7 +251,6 @@ public:
         bool supportsExceptionOptions = false;
         bool supportsValueFormattingOptions = false;
         bool supportsExceptionInfoRequest = false;
-        bool supportsExceptionOptions = false;
         bool supportsTerminateRequest = false;
         bool supportsRestartRequest = false;
         bool supportsGotoTargetsRequest = false;

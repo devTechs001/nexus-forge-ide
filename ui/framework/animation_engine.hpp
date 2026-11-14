@@ -1,247 +1,179 @@
 // ui/framework/animation_engine.hpp
 #pragma once
 
-#include "widget_system.hpp"
-#include <memory>
+#include <string>
 #include <vector>
-#include <unordered_map>
 #include <functional>
+#include <memory>
 #include <chrono>
+#include <cmath>
 
 namespace NexusForge::UI {
 
 // Easing functions
-enum class EasingType {
-    Linear,
-    EaseInQuad,
-    EaseOutQuad,
-    EaseInOutQuad,
-    EaseInCubic,
-    EaseOutCubic,
-    EaseInOutCubic,
-    EaseInQuart,
-    EaseOutQuart,
-    EaseInOutQuart,
-    EaseInQuint,
-    EaseOutQuint,
-    EaseInOutQuint,
-    EaseInSine,
-    EaseOutSine,
-    EaseInOutSine,
-    EaseInExpo,
-    EaseOutExpo,
-    EaseInOutExpo,
-    EaseInCirc,
-    EaseOutCirc,
-    EaseInOutCirc,
-    EaseInBack,
-    EaseOutBack,
-    EaseInOutBack,
-    EaseInElastic,
-    EaseOutElastic,
-    EaseInOutElastic,
-    EaseInBounce,
-    EaseOutBounce,
-    EaseInOutBounce
+class Easing {
+public:
+    static float linear(float t) { return t; }
+    static float easeInQuad(float t) { return t * t; }
+    static float easeOutQuad(float t) { return t * (2 - t); }
+    static float easeInOutQuad(float t) { return t < 0.5f ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+    static float easeInCubic(float t) { return t * t * t; }
+    static float easeOutCubic(float t) { return 1 - std::pow(1 - t, 3); }
+    static float easeInOutCubic(float t) { return t < 0.5f ? 4 * t * t * t : 1 - std::pow(-2 * t + 2, 3) / 2; }
+    static float easeInQuart(float t) { return t * t * t * t; }
+    static float easeOutQuart(float t) { return 1 - std::pow(1 - t, 4); }
+    static float easeInOutQuart(float t) { return t < 0.5f ? 8 * t * t * t * t : 1 - std::pow(-2 * t + 2, 4) / 2; }
+    static float easeInQuint(float t) { return t * t * t * t * t; }
+    static float easeOutQuint(float t) { return 1 - std::pow(1 - t, 5); }
+    static float easeInOutQuint(float t) { return t < 0.5f ? 16 * t * t * t * t * t : 1 - std::pow(-2 * t + 2, 5) / 2; }
+    static float easeInSine(float t) { return 1 - std::cos(t * 3.14159f / 2); }
+    static float easeOutSine(float t) { return std::sin(t * 3.14159f / 2); }
+    static float easeInOutSine(float t) { return -(std::cos(3.14159f * t) - 1) / 2; }
+    static float easeInExpo(float t) { return t == 0 ? 0 : std::pow(2, 10 * t - 10); }
+    static float easeOutExpo(float t) { return t == 1 ? 1 : 1 - std::pow(2, -10 * t); }
+    static float easeInOutExpo(float t) {
+        return t == 0 ? 0 : t == 1 ? 1 : t < 0.5f ? std::pow(2, 20 * t - 10) / 2 : (2 - std::pow(2, -20 * t + 10)) / 2;
+    }
+    static float easeInCirc(float t) { return 1 - std::sqrt(1 - std::pow(t, 2)); }
+    static float easeOutCirc(float t) { return std::sqrt(1 - std::pow(t - 1, 2)); }
+    static float easeInOutCirc(float t) {
+        return t < 0.5f ? (1 - std::sqrt(1 - std::pow(2 * t, 2))) / 2 : (std::sqrt(1 - std::pow(-2 * t + 2, 2)) + 1) / 2;
+    }
+    static float easeInBack(float t) {
+        const float c1 = 1.70158f;
+        const float c3 = c1 + 1;
+        return c3 * t * t * t - c1 * t * t;
+    }
+    static float easeOutBack(float t) {
+        const float c1 = 1.70158f;
+        const float c3 = c1 + 1;
+        return 1 + c3 * std::pow(t - 1, 3) + c1 * std::pow(t - 1, 2);
+    }
+    static float easeInOutBack(float t) {
+        const float c1 = 1.70158f;
+        const float c2 = c1 * 1.525f;
+        return t < 0.5f ? (std::pow(2 * t, 2) * ((c2 + 1) * 2 * t - c2)) / 2 
+                        : (std::pow(2 * t - 2, 2) * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2;
+    }
+    static float easeInElastic(float t) {
+        const float c4 = (2 * 3.14159f) / 3;
+        return t == 0 ? 0 : t == 1 ? 1 : -std::pow(2, 10 * t - 10) * std::sin((t * 10 - 10.75f) * c4);
+    }
+    static float easeOutElastic(float t) {
+        const float c4 = (2 * 3.14159f) / 3;
+        return t == 0 ? 0 : t == 1 ? 1 : std::pow(2, -10 * t) * std::sin((t * 10 - 0.75f) * c4) + 1;
+    }
+    static float easeInOutElastic(float t) {
+        const float c5 = (2 * 3.14159f) / 4.5f;
+        return t == 0 ? 0 : t == 1 ? 1 
+               : t < 0.5f ? -(std::pow(2, 20 * t - 10) * std::sin((20 * t - 11.125f) * c5)) / 2 
+               : (std::pow(2, -20 * t + 10) * std::sin((20 * t - 11.125f) * c5)) / 2 + 1;
+    }
+    static float easeOutBounce(float t);
+    static float easeInBounce(float t) { return 1 - easeOutBounce(1 - t); }
+    static float easeInOutBounce(float t) {
+        return t < 0.5f ? (1 - easeOutBounce(1 - 2 * t)) / 2 : (1 + easeOutBounce(2 * t - 1)) / 2;
+    }
 };
-
-// Easing function
-using EasingFunction = std::function<float(float)>;
-
-// Get easing function by type
-EasingFunction getEasingFunction(EasingType type);
 
 // Animation types
 enum class AnimationType {
-    Opacity,
-    Translation,
+    Fade,
+    Slide,
     Scale,
-    Rotation,
-    Width,
-    Height,
-    Size,
-    Bounds,
+    Rotate,
     Color,
+    Size,
+    Position,
     Custom
-};
-
-// Animation target
-struct AnimationTarget {
-    AnimationType type;
-    Widget* widget;
-    std::string property;
-    
-    // Start and end values
-    float startX, startY;
-    float endX, endY;
-    float startWidth, startHeight;
-    float endWidth, endHeight;
-    float startOpacity, endOpacity;
-    float startAngle, endAngle;
-    Color startColor, endColor;
 };
 
 // Animation class
 class Animation {
 public:
-    using Ptr = std::shared_ptr<Animation>;
-    
+    using EasingFunction = std::function<float(float)>;
+    using UpdateCallback = std::function<void(float)>;
+    using CompleteCallback = std::function<void()>;
+
     Animation();
-    ~Animation();
     
     // Configuration
-    void setDuration(float seconds) { duration_ = seconds; }
-    void setDelay(float seconds) { delay_ = seconds; }
-    void setEasing(EasingType type) { easingType_ = type; }
-    void setEasingFunction(EasingFunction func) { easingFunction_ = func; }
-    void setLoop(bool loop) { loop_ = loop; }
-    void setPingPong(bool pingPong) { pingPong_ = pingPong; }
-    void setAutoReverse(bool reverse) { autoReverse_ = reverse; }
+    Animation& setDuration(float seconds) { duration_ = seconds; return *this; }
+    Animation& setDelay(float seconds) { delay_ = seconds; return *this; }
+    Animation& setEasing(EasingFunction easing) { easing_ = std::move(easing); return *this; }
+    Animation& setEasingPreset(const std::string& preset);
+    Animation& setLoop(bool loop, bool pingPong = false) { loop_ = loop; pingPong_ = pingPong; return *this; }
     
-    // Target
-    void setTarget(Widget* widget);
-    void setProperty(const std::string& property);
-    void setFrom(float value);
-    void setTo(float value);
-    void setFromTo(float from, float to);
+    // Value animation
+    Animation& from(float value) { startValue_ = value; return *this; }
+    Animation& to(float value) { endValue_ = value; return *this; }
     
-    // For multi-property animations
-    void setFromBounds(const Rect& bounds);
-    void setToBounds(const Rect& bounds);
-    void setFromColor(const Color& color);
-    void setToColor(const Color& color);
-    
-    // State
-    bool isRunning() const { return running_; }
-    bool isPaused() const { return paused_; }
-    bool isComplete() const { return complete_; }
-    float getProgress() const { return progress_; }
-    float getElapsed() const { return elapsed_; }
+    // Callbacks
+    Animation& onUpdate(UpdateCallback callback) { onUpdate_ = std::move(callback); return *this; }
+    Animation& onComplete(CompleteCallback callback) { onComplete_ = std::move(callback); return *this; }
     
     // Control
     void start();
     void stop();
     void pause();
     void resume();
-    void reset();
-    void reverse();
+    void seek(float time);
+    
+    // State
+    bool isRunning() const { return running_; }
+    bool isPaused() const { return paused_; }
+    bool isComplete() const { return complete_; }
+    float getProgress() const { return progress_; }
+    float getCurrentValue() const { return currentValue_; }
     
     // Update
     void update(float deltaTime);
-    
-    // Callbacks
-    std::function<void()> onStart;
-    std::function<void()> onUpdate;
-    std::function<void()> onComplete;
-    std::function<void()> onReverse;
-    
+
 private:
-    AnimationTarget target_;
     float duration_ = 0.5f;
     float delay_ = 0;
     float elapsed_ = 0;
     float progress_ = 0;
-    
-    EasingType easingType_ = EasingType::EaseOutQuad;
-    EasingFunction easingFunction_;
-    
+    float startValue_ = 0;
+    float endValue_ = 1;
+    float currentValue_ = 0;
     bool running_ = false;
     bool paused_ = false;
     bool complete_ = false;
     bool loop_ = false;
     bool pingPong_ = false;
-    bool autoReverse_ = false;
-    bool reversing_ = false;
+    bool pingPongForward_ = true;
     
-    std::chrono::steady_clock::time_point startTime_;
+    EasingFunction easing_;
+    UpdateCallback onUpdate_;
+    CompleteCallback onComplete_;
     
-    void applyValue(float value);
-    float ease(float t);
+    float interpolate(float t);
 };
 
-// Animation builder
-class AnimationBuilder {
+// Animation Manager
+class AnimationManager {
 public:
-    AnimationBuilder();
+    static AnimationManager& getInstance();
     
-    AnimationBuilder& with(Widget* widget);
-    AnimationBuilder& property(const std::string& name);
-    AnimationBuilder& from(float value);
-    AnimationBuilder& to(float value);
-    AnimationBuilder& duration(float seconds);
-    AnimationBuilder& delay(float seconds);
-    AnimationBuilder& easing(EasingType type);
-    AnimationBuilder& loop(bool loop = true);
-    AnimationBuilder& pingPong(bool pingPong = true);
-    
-    Animation::Ptr build();
-    
-private:
-    std::shared_ptr<Animation> animation_;
-};
+    // Create animations
+    std::shared_ptr<Animation> createAnimation();
+    std::shared_ptr<Animation> fadeIn(float duration = 0.3f);
+    std::shared_ptr<Animation> fadeOut(float duration = 0.3f);
+    std::shared_ptr<Animation> slideIn(float duration = 0.3f);
+    std::shared_ptr<Animation> slideOut(float duration = 0.3f);
+    std::shared_ptr<Animation> scaleIn(float duration = 0.3f);
+    std::shared_ptr<Animation> scaleOut(float duration = 0.3f);
 
-// Animation engine
-class AnimationEngine {
-public:
-    static AnimationEngine& getInstance();
-    
-    // Animation management
-    void play(Animation::Ptr animation);
-    void stop(Animation::Ptr animation);
-    void stopAll();
-    void stop(Widget* widget);
-    void stop(Widget* widget, const std::string& property);
-    
-    // Pause/Resume
-    void pause(Animation::Ptr animation);
-    void resume(Animation::Ptr animation);
-    void pauseAll();
-    void resumeAll();
-    
-    // Update
+    // Update all animations
     void update(float deltaTime);
-    
-    // Statistics
-    size_t getActiveAnimationCount() const { return activeAnimations_.size(); }
-    size_t getTotalAnimationCount() const { return allAnimations_.size(); }
-    
-    // Convenience methods
-    Animation::Ptr fade(Widget* widget, float from, float to, float duration);
-    Animation::Ptr move(Widget* widget, float fromX, float fromY, float toX, float toY, float duration);
-    Animation::Ptr scale(Widget* widget, float fromScale, float toScale, float duration);
-    Animation::Ptr rotate(Widget* widget, float fromAngle, float toAngle, float duration);
-    Animation::Ptr resize(Widget* widget, float fromWidth, float fromHeight,
-                          float toWidth, float toHeight, float duration);
-    
-private:
-    AnimationEngine() = default;
-    
-    std::vector<Animation::Ptr> activeAnimations_;
-    std::unordered_map<Widget*, std::vector<Animation::Ptr>> widgetAnimations_;
-    std::vector<Animation::Ptr> allAnimations_;
-    
-    void removeCompletedAnimations();
-};
 
-// Pre-built animations
-namespace Animations {
-    Animation::Ptr fadeIn(Widget* widget, float duration = 0.3f);
-    Animation::Ptr fadeOut(Widget* widget, float duration = 0.3f);
-    Animation::Ptr fadeInOut(Widget* widget, float duration = 0.6f);
-    
-    Animation::Ptr slideInFromLeft(Widget* widget, float distance = 100, float duration = 0.3f);
-    Animation::Ptr slideInFromRight(Widget* widget, float distance = 100, float duration = 0.3f);
-    Animation::Ptr slideInFromTop(Widget* widget, float distance = 100, float duration = 0.3f);
-    Animation::Ptr slideInFromBottom(Widget* widget, float distance = 100, float duration = 0.3f);
-    
-    Animation::Ptr scaleIn(Widget* widget, float fromScale = 0.5f, float duration = 0.3f);
-    Animation::Ptr scaleOut(Widget* widget, float toScale = 0.5f, float duration = 0.3f);
-    
-    Animation::Ptr bounce(Widget* widget, float amplitude = 10, float duration = 0.5f);
-    Animation::Ptr shake(Widget* widget, float amplitude = 5, float duration = 0.3f);
-    
-    Animation::Ptr pulse(Widget* widget, float scale = 1.1f, float duration = 0.2f);
-    Animation::Ptr rotateIn(Widget* widget, float fromAngle = -360, float duration = 0.5f);
-}
+    // Stop all animations
+    void stopAll();
+
+private:
+    AnimationManager() = default;
+    std::vector<std::shared_ptr<Animation>> animations_;
+};
 
 } // namespace NexusForge::UI

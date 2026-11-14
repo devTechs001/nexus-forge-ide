@@ -21,8 +21,8 @@ public:
     void chatStream(const ChatRequest& request, StreamCallback callback) override;
     std::future<CodeAnalysisResult> analyzeCode(const CodeAnalysisRequest& request) override;
 
-    bool isReady() const override { return initialized_ && !apiKey_.empty(); }
-    const ModelConfig& getConfig() const override { return config_; }
+    bool isReady() const override;
+    const ModelConfig& getConfig() const override;
 
     // Anthropic-specific
     void setApiKey(const std::string& key) { apiKey_ = key; }
@@ -38,7 +38,10 @@ private:
     std::string model_ = "claude-3-sonnet-20240229";
     bool initialized_ = false;
 
+    ModelCapabilities capabilities_;
     std::string buildChatPrompt(const ChatRequest& request);
+    std::string buildAnalysisPrompt(const CodeAnalysisRequest& request);
+    std::string escapeJson(const std::string& s);
     ChatResponse parseChatResponse(const std::string& json);
     CodeAnalysisResult parseAnalysisResponse(const std::string& json);
 };

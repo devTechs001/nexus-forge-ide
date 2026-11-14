@@ -1,0 +1,9 @@
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/NexusForge.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/package.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/package_source.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/edit_cache.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/rebuild_cache.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/list_install_components.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/install.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/install/local.dir
+/home/darkhat/projects/cpp-projects/NexusForge-ide/NexusForge/build/CMakeFiles/install/strip.dir

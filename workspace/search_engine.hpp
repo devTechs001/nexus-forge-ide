@@ -137,6 +137,7 @@ private:
 
     size_t maxFileSize_ = 10 * 1024 * 1024;  // 10MB
     size_t maxResults_ = 20000;
+    size_t totalIndexedSize_ = 0;
 
     bool indexing_ = false;
     float indexProgress_ = 0;

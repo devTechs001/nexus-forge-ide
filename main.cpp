@@ -3,6 +3,8 @@
 
 #include "core/engine/nexus_core.hpp"
 #include "core/platform/platform_abstraction.hpp"
+#include "core/engine/extension_manager.hpp"
+#include "core/engine/workspace_manager.hpp"
 #include "ui/screens/splash_screen.hpp"
 #include "ui/screens/main_window.hpp"
 #include "config/settings_manager.hpp"
@@ -249,7 +251,9 @@ bool NexusForgeApp::loadAIModels() {
     if (!BuildConfig::ENABLE_AI) return true;
 
     aiManager_ = std::make_unique<AI::ModelManager>();
-    return aiManager_->initialize(settings_->getAISettings());
+    AI::AISettings aiSettings;
+    aiSettings.enabled = true;
+    return aiManager_->initialize(aiSettings);
 }
 
 bool NexusForgeApp::restoreWorkspace() {

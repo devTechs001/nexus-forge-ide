@@ -4,6 +4,7 @@
 #include "../framework/widget_system.hpp"
 #include "../widgets/code_editor.hpp"
 #include "../mobile/adaptive_layout.hpp"
+#include "../mobile/gesture_recognizer.hpp"
 #include "../../core/engine/nexus_core.hpp"
 #include "../../config/settings_manager.hpp"
 

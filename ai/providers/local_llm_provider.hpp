@@ -21,8 +21,8 @@ public:
     void chatStream(const ChatRequest& request, StreamCallback callback) override;
     std::future<CodeAnalysisResult> analyzeCode(const CodeAnalysisRequest& request) override;
 
-    bool isReady() const override { return initialized_; }
-    const ModelConfig& getConfig() const override { return config_; }
+    bool isReady() const override;
+    const ModelConfig& getConfig() const override;
 
     // Local LLM-specific
     void setServerUrl(const std::string& url) { serverUrl_ = url; }
@@ -45,8 +45,14 @@ private:
     bool initialized_ = false;
     bool modelLoaded_ = false;
 
-    std::string buildPrompt(const CompletionRequest& request);
+    ModelCapabilities capabilities_;
+    std::string buildCompletionPrompt(const CompletionRequest& request);
+    std::string buildChatPrompt(const ChatRequest& request);
+    std::string buildAnalysisPrompt(const CodeAnalysisRequest& request);
+    bool fileExists(const std::string& path) const;
     ChatResponse parseResponse(const std::string& json);
+    size_t getModelSize() const;
+    std::string getModelInfo() const;
 };
 
 } // namespace NexusForge::AI

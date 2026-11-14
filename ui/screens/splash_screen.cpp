@@ -339,8 +339,8 @@ float easeOutBack(float t) {
 }
 
 bool SplashScreen::createNativeWindow() {
-    return Platform::PlatformAbstraction::createSplashWindow(
-        600, 400, &nativeWindow_);
+    nativeWindow_ = Platform::PlatformAbstraction::createSplashWindow(600, 400);
+    return nativeWindow_ != nullptr;
 }
 
 void SplashScreen::destroyNativeWindow() {

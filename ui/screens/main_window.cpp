@@ -24,8 +24,8 @@ bool MainWindow::initialize(Core::NexusEngine* engine, Config::SettingsManager* 
     gestureHandler_ = std::make_unique<Mobile::GestureHandler>();
 
     // Create native window
-    if (!Platform::PlatformAbstraction::createMainWindow(
-            windowWidth_, windowHeight_, &nativeWindow_)) {
+    nativeWindow_ = Platform::PlatformAbstraction::createMainWindow("NexusForge IDE", windowWidth_, windowHeight_);
+    if (!nativeWindow_) {
         return false;
     }
 

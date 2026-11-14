@@ -20,7 +20,8 @@ public:
     void insert(size_t position, const std::string& text);
 
     void remove();  // Remove char at gap
-    void remove(size_t position, size_t length);
+    char remove(size_t position);  // Remove char at position, returns it
+    std::string remove(size_t position, size_t length);
     void removeRange(size_t start, size_t end);
 
     char at(size_t position) const;
@@ -60,6 +61,17 @@ public:
     void saveState();
     void restoreState();
 
+    // Buffer management
+    void reserve(size_t newCapacity);
+    void shrinkToFit();
+    void optimize();
+
+    // Comparison
+    int compare(const GapBuffer& other) const;
+    bool operator==(const GapBuffer& other) const;
+    bool operator!=(const GapBuffer& other) const;
+    bool operator<(const GapBuffer& other) const;
+
     // Clear
     void clear();
 
@@ -83,8 +95,6 @@ private:
     void ensureGapSize(size_t needed);
     void grow(size_t minCapacity);
     void moveGap(size_t newPosition);
-    void recalculateLineCount();
-    void updateLineCount(size_t start, size_t end, const std::string& newText);
 };
 
 } // namespace NexusForge::Editor

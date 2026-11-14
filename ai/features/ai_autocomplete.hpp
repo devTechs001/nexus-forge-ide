@@ -119,7 +119,7 @@ private:
     std::vector<std::string> gatherRelevantContext(const CompletionContext& context);
 
     // Post-processing
-    std::vector<InlineSuggestion> processCompletions(
+    void processCompletions(
         const std::vector<CompletionResult>& results,
         const CompletionContext& context);
 
