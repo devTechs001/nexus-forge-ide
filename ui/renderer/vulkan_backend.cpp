@@ -2,6 +2,7 @@
 // Vulkan Backend Implementation (Stub)
 
 #include "vulkan_backend.hpp"
+#include <algorithm>
 
 #ifdef NEXUS_ENABLE_VULKAN
 

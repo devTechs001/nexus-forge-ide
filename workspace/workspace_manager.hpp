@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <cstdint>
 
 namespace NexusForge::Core {
     class NexusEngine;

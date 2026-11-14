@@ -10,6 +10,7 @@
 #include <string>
 #include <functional>
 #include <optional>
+#include <limits>
 
 namespace NexusForge::UI {
 

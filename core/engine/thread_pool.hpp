@@ -11,6 +11,9 @@
 #include <atomic>
 #include <string>
 #include <stdexcept>
+#include <cstdint>
+#include <memory>
+#include <type_traits>
 
 namespace NexusForge::Core {
 

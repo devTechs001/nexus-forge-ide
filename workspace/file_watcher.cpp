@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#include <exception>
 
 namespace NexusForge::Core {
 

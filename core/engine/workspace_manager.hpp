@@ -7,6 +7,7 @@
 #include <memory>
 #include <unordered_map>
 #include <functional>
+#include <cstdint>
 
 namespace NexusForge::Core {
 

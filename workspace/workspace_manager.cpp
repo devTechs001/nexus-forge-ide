@@ -8,6 +8,7 @@
 #include <sstream>
 #include <algorithm>
 #include <filesystem>
+#include <cstdlib>
 
 namespace NexusForge::Workspace {
 

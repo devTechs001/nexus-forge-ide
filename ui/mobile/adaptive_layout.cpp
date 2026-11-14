@@ -3,6 +3,7 @@
 
 #include "adaptive_layout.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace NexusForge::UI::Mobile {
 

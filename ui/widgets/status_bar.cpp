@@ -1,5 +1,6 @@
 // ui/widgets/status_bar.cpp
 #include "status_bar.hpp"
+#include <algorithm>
 
 namespace NexusForge::UI {
 

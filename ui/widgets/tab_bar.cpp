@@ -1,5 +1,7 @@
 // ui/widgets/tab_bar.cpp
 #include "tab_bar.hpp"
+#include <algorithm>
+#include <iterator>
 
 namespace NexusForge::UI {
 

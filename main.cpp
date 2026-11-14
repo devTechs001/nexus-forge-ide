@@ -14,6 +14,10 @@
 #include <memory>
 #include <thread>
 #include <future>
+#include <exception>
+#include <functional>
+#include <string>
+#include <vector>
 
 // Platform-specific entry points
 #if defined(_WIN32) || defined(_WIN64)

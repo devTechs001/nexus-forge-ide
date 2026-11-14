@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <regex>
+#include <cstdint>
 
 namespace NexusForge::Workspace {
 

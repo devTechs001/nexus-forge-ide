@@ -12,6 +12,8 @@
 #include <mutex>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <functional>
 
 namespace NexusForge::AI {
 

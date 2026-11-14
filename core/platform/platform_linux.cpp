@@ -1,5 +1,8 @@
 // core/platform/platform_linux.cpp
 #include "platform_abstraction.hpp"
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
 
 #ifdef NEXUS_PLATFORM_LINUX
 

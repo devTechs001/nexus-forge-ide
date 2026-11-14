@@ -1,5 +1,6 @@
 // ui/widgets/tree_view.cpp
 #include "tree_view.hpp"
+#include <algorithm>
 
 namespace NexusForge::UI {
 

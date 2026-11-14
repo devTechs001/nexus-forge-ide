@@ -3,6 +3,7 @@
 
 #include "anthropic_provider.hpp"
 #include <sstream>
+#include <cstdio>
 
 namespace NexusForge::AI {
 

@@ -5,6 +5,7 @@
 #include "../buffer/text_buffer.hpp"
 #include <stack>
 #include <unordered_map>
+#include <algorithm>
 
 namespace NexusForge::Editor {
 

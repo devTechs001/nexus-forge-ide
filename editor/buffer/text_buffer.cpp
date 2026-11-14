@@ -2,6 +2,8 @@
 #include "text_buffer.hpp"
 #include <fstream>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 namespace NexusForge::Editor {
 

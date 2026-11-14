@@ -4,6 +4,7 @@
 #include "live_share.hpp"
 #include <algorithm>
 #include <sstream>
+#include <cstdlib>
 
 namespace NexusForge::Networking {
 

@@ -162,7 +162,8 @@ void TreeSitterBridge::parseWithOldTree(const std::string& source, const TSRange
 std::string TreeSitterBridge::getNodeType(TSNode node) const {
 #ifdef NEXUS_HAS_TREE_SITTER
     if (ts_node_is_null(node)) return "";
-    return ts_node_type(node);
+    const char* t = ts_node_type(node);
+    return t ? t : "";
 #else
     (void)node;
     return "";
@@ -192,7 +193,8 @@ void TreeSitterBridge::collectHighlights(TSNode node, std::vector<TreeSitterHigh
 #ifdef NEXUS_HAS_TREE_SITTER
     if (ts_node_is_null(node)) return;
 
-    std::string type = ts_node_type(node);
+    const char* rawType = ts_node_type(node);
+    std::string type = rawType ? rawType : "";
     if (!type.empty()) {
         TreeSitterHighlight highlight;
         highlight.type = type;
@@ -284,7 +286,11 @@ void TreeSitterBridge::setLogger(TSLogger logger) {
 uint32_t TreeSitterBridge::getLanguageVersion() const {
 #ifdef NEXUS_HAS_TREE_SITTER
     if (language_) {
+#if defined(TREE_SITTER_LANGUAGE_VERSION) && TREE_SITTER_LANGUAGE_VERSION >= 15
+        return ts_language_abi_version(language_);
+#else
         return ts_language_version(language_);
+#endif
     }
 #endif
     return 0;

@@ -2,6 +2,9 @@
 // DirectX 11 Backend Implementation
 
 #include "directx_backend.hpp"
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 
 #ifdef NEXUS_ENABLE_DX12
 

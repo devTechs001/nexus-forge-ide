@@ -6,6 +6,7 @@
 #include <chrono>
 #include <functional>
 #include <unordered_map>
+#include <memory>
 
 namespace NexusForge::UI::Mobile {
 

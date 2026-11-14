@@ -2,6 +2,7 @@
 #pragma once
 
 #include "render_engine.hpp"
+#include <cstdint>
 
 #ifdef NEXUS_ENABLE_OPENGL
 

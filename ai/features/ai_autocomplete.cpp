@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <sstream>
+#include <thread>
 
 namespace NexusForge::AI {
 

@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <deque>
+#include <functional>
+#include <memory>
 
 namespace NexusForge::UI {
 

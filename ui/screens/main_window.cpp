@@ -1,6 +1,7 @@
 // ui/screens/main_window.cpp
 #include "main_window.hpp"
 #include "../../core/platform/platform_abstraction.hpp"
+#include <algorithm>
 
 namespace NexusForge::UI {
 

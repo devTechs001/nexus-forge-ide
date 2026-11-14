@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <sstream>
 #include <regex>
+#include <iomanip>
 
 namespace NexusForge::Debugger {
 

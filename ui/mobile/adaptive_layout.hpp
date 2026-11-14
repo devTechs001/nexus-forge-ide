@@ -4,6 +4,8 @@
 #include "../framework/widget_system.hpp"
 #include <functional>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace NexusForge::UI::Mobile {
 

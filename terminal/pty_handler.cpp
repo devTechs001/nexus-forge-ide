@@ -8,6 +8,7 @@
 #include <fstream>
 #include <thread>
 #include <chrono>
+#include <cctype>
 
 #if defined(__unix__) || defined(__APPLE__)
 #include <fcntl.h>
