@@ -25,15 +25,24 @@ public:
 
     void setProgress(float progress, const std::string& message = "");
     void setPhase(const std::string& phase);
+    void setMinimumDisplayTime(float seconds) { minimumDisplayTime_ = seconds; }
 
     void update(double deltaTime);
     void render();
 
     bool isVisible() const { return visible_; }
+    bool isMinimumTimeElapsed() const;
+    bool isCloseRequested() const;
+    float getDisplayedProgress() const { return displayedProgress_; }
+    void* getNativeWindow() const { return nativeWindow_; }
+    bool saveFramePPM(const std::string& path) const;
 
     std::function<void()> onClosed;
 
 private:
+    static constexpr int SPLASH_WIDTH = 640;
+    static constexpr int SPLASH_HEIGHT = 420;
+
     Core::NexusEngine* engine_ = nullptr;
     std::unique_ptr<RenderEngine> renderer_;
 
@@ -49,11 +58,12 @@ private:
     float textAlpha_ = 0.0f;
     float progressBarAlpha_ = 0.0f;
     float particleTime_ = 0.0f;
+    float pulseTime_ = 0.0f;
 
     // Timing
     std::chrono::steady_clock::time_point startTime_;
-    float fadeInDuration_ = 0.5f;
-    float minimumDisplayTime_ = 2.0f;
+    float fadeInDuration_ = 0.55f;
+    float minimumDisplayTime_ = 2.4f;
 
     // Resources
     TextureHandle logoTexture_ = 0;
@@ -66,6 +76,7 @@ private:
         float size;
         float alpha;
         float life;
+        float maxLife;
     };
     std::vector<Particle> particles_;
 
@@ -74,8 +85,9 @@ private:
     void renderProgressBar();
     void renderMessage();
     void renderParticles();
+    void renderFrameBorder();
     void updateParticles(double deltaTime);
-    void spawnParticle();
+    void spawnParticle(bool randomY = false);
 
     // Platform-specific window handle
     void* nativeWindow_ = nullptr;

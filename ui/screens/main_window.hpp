@@ -6,6 +6,7 @@
 #include "../mobile/adaptive_layout.hpp"
 #include "../mobile/gesture_recognizer.hpp"
 #include "../../core/engine/nexus_core.hpp"
+#include "../../core/platform/platform_abstraction.hpp"
 #include "../../config/settings_manager.hpp"
 
 #include <memory>
@@ -37,6 +38,11 @@ struct TabInfo {
     std::string language;
     bool modified = false;
     bool pinned = false;
+    bool isWelcome = false;
+    std::vector<std::string> lines;
+    int cursorLine = 0;
+    int cursorCol = 0;
+    int scrollLine = 0;
     Widget::Ptr content;
 };
 
@@ -172,6 +178,14 @@ public:
 
     // Event handling
     bool handleEvent(Core::Event& event);
+    bool handlePlatformEvent(const Platform::PlatformEvent& event);
+
+    // Workbench helpers
+    void openWelcomeTab();
+    void addOutputLog(const std::string& line);
+    void saveActiveFile();
+    void* getNativeWindow() const { return nativeWindow_; }
+    bool saveFramePPM(const std::string& path) const;
 
     // Callbacks
     std::function<void()> onClose;
@@ -227,9 +241,55 @@ private:
     std::vector<StatusBarItem> statusBarItems_;
 
     bool sidebarVisible_ = true;
-    bool panelVisible_ = false;
-    float sidebarWidth_ = 250;
-    float panelHeight_ = 200;
+    bool panelVisible_ = true;
+    float sidebarWidth_ = 250.0f;
+    float panelHeight_ = 172.0f;
+
+    // Live interactive workbench state
+    struct ExplorerEntry {
+        std::string name;
+        std::string path;
+        bool isDirectory = false;
+        bool expanded = false;
+        int depth = 0;
+    };
+    struct CommandItem {
+        std::string label;
+        std::string shortcut;
+        std::function<void()> action;
+    };
+
+    std::string workspaceRoot_;
+    std::string workspaceName_;
+    std::string gitBranch_ = "main";
+    std::vector<ExplorerEntry> explorerEntries_;
+    int explorerScroll_ = 0;
+    int hoveredExplorerIndex_ = -1;
+
+    int activeBottomTab_ = 0; // 0=OUTPUT, 1=TERMINAL, 2=PROBLEMS, 3=DEBUG
+    std::vector<std::string> outputLogs_;
+    std::string statusNotification_ = "Ready";
+    double statusNotificationTimer_ = 0.0;
+
+    bool commandPaletteOpen_ = false;
+    int commandPaletteSelected_ = 0;
+    std::vector<CommandItem> paletteCommands_;
+
+    double cursorBlinkTime_ = 0.0;
+    double elapsedTime_ = 0.0;
+    float mouseX_ = -1.0f;
+    float mouseY_ = -1.0f;
+
+    // Cached layout rects for rendering & hit-testing
+    Rect titleBarRect_;
+    Rect searchPillRect_;
+    Rect activityBarRect_;
+    Rect sidebarRect_;
+    Rect tabBarRect_;
+    Rect breadcrumbRect_;
+    Rect editorRect_;
+    Rect bottomPanelRect_;
+    Rect statusBarRect_;
 
     // Initialization helpers
     void createTitleBar();
@@ -240,6 +300,33 @@ private:
     void createStatusBar();
     void createMobileLayout();
     void createOverlays();
+
+    // Workspace & workbench rendering
+    void loadWorkspaceTree();
+    void toggleExplorerFolder(size_t index);
+    void detectGitBranch();
+    void initPaletteCommands();
+
+    void renderTitleBar();
+    void renderActivityBar();
+    void renderSidebar();
+    void renderExplorerSidebar();
+    void renderTabBar();
+    void renderEditorArea();
+    void renderWelcomeView(const Rect& area);
+    void renderCodeEditorView(TabInfo& tab, const Rect& area);
+    void renderBottomPanel();
+    void renderStatusBar();
+    void renderCommandPalette();
+    void drawActivityIcon(PanelType type, float cx, float cy, const Color& color);
+    void drawHighlightedLine(const std::string& line, const std::string& lang,
+                             float x, float y, float maxX, float fontSize);
+
+    // Interactive input handling
+    bool handleMouseClick(float x, float y, int button);
+    bool handleMouseScroll(float x, float y, double scrollY);
+    bool handleEditorKeyPress(const Core::KeyPressEvent& event);
+    bool handleEditorCharInput(uint32_t codepoint);
 
     // Layout helpers
     void layoutDesktop();

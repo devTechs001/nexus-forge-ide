@@ -123,6 +123,7 @@ set(NEXUS_UI_SOURCES
     ui/framework/animation_engine.cpp
     ui/framework/theme_manager.cpp
     ui/renderer/render_engine.cpp
+    ui/renderer/software_backend.cpp
     ui/renderer/font_renderer.cpp
     ui/renderer/texture_manager.cpp
     ui/renderer/shader_manager.cpp
@@ -292,6 +293,7 @@ if(TARGET glfw)
 endif()
 if(TARGET Freetype::Freetype)
     target_link_libraries(NexusForge PRIVATE Freetype::Freetype)
+    target_compile_definitions(NexusForge PRIVATE NEXUS_HAS_FREETYPE)
 endif()
 if(NEXUS_HAS_TREE_SITTER)
     target_link_libraries(NexusForge PRIVATE ${TreeSitter_LIBRARIES})

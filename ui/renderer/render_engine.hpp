@@ -231,6 +231,11 @@ public:
     virtual void clear(const Color& color) = 0;
     virtual void draw(const DrawCommand& cmd) = 0;
     virtual void executeDrawCommand(const DrawCommand& cmd) { draw(cmd); }
+    virtual bool measureText(const std::string& text, const std::string& fontFamily,
+                             float fontSize, Vec2& outSize) const {
+        (void)text; (void)fontFamily; (void)fontSize; (void)outSize;
+        return false;
+    }
 };
 
 // Forward declarations - implementations in separate files

@@ -77,6 +77,8 @@ bool NexusEngine::initialize(const EngineConfig& config) {
 
 void NexusEngine::shutdown() {
     running_.store(false);
+    updateCallback_ = nullptr;
+    renderCallback_ = nullptr;
 
     if (fileWatcher_) fileWatcher_->shutdown();
     if (workspaceManager_) workspaceManager_->shutdown();
@@ -144,10 +146,13 @@ void NexusEngine::tick() {
     }
     if (fileWatcher_) fileWatcher_->update();
     if (extensionManager_) extensionManager_->update(deltaTime_);
+    if (updateCallback_) updateCallback_(deltaTime_);
 }
 
 void NexusEngine::render() {
-    // Rendering handled by UI system
+    if (renderCallback_) {
+        renderCallback_();
+    }
 }
 
 void NexusEngine::requestQuit() {
