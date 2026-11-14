@@ -15,7 +15,7 @@ JOBS=""
 CLEAN=0
 CLEAN_ONLY=0
 VERBOSE=0
-RUN_AFTER_BUILD=0
+RUN_AFTER_BUILD=1
 RUN_CHECK=0
 ENABLE_AI=1
 ENABLE_OPENGL=0
@@ -78,15 +78,18 @@ Options:
       --dx12            Enable DirectX renderer backend (Windows)
       --tests           Enable CMake unit tests (NEXUS_BUILD_TESTS=ON)
       --check           Run header syntax check + binary smoke test (--version)
-      --run             Run the built NexusForge binary after building
+      --run             Run the built NexusForge binary after building (default)
+      --no-run          Build only; do not auto-run after building
+      --build-only      Alias for --no-run
   -v, --verbose         Show full compiler commands
   -h, --help            Show this help message and exit
 
 Examples:
-  ./build.sh                            # Release build (auto-detects cmake or g++/clang++)
-  ./build.sh -t Debug -j 8              # Debug build with 8 jobs
-  ./build.sh --backend direct --check   # Direct C++20 build + verification checks
-  ./build.sh --run -- --version         # Build and run with --version
+  ./build.sh                            # Release build and auto-run NexusForge
+  ./build.sh --no-run                   # Build only without launching
+  ./build.sh -t Debug -j 8              # Debug build with 8 jobs and auto-run
+  ./build.sh --no-run --check           # Build + header ODR & --version checks
+  ./build.sh -- --version               # Build and run with --version
   ./build.sh clean                      # Clean build output directory
 EOF
 }
@@ -184,6 +187,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --run)
             RUN_AFTER_BUILD=1
+            shift
+            ;;
+        --no-run|--build-only)
+            RUN_AFTER_BUILD=0
             shift
             ;;
         -v|--verbose)
@@ -291,6 +298,7 @@ echo " Build Dir : $BUILD_DIR"
 echo " AI        : $(on_off "$ENABLE_AI")"
 echo " OpenGL    : $(on_off "$ENABLE_OPENGL")"
 echo " Vulkan    : $(on_off "$ENABLE_VULKAN")"
+echo " Auto-Run  : $(on_off "$RUN_AFTER_BUILD")"
 echo "=========================================="
 
 build_with_cmake() {

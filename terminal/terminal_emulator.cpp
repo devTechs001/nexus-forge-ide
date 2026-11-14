@@ -102,14 +102,18 @@ TerminalEmulator::~TerminalEmulator() {
 }
 
 bool TerminalEmulator::initialize(int cols, int rows) {
-    cols_ = std::max(1, cols);
-    rows_ = std::max(1, rows);
+    cols_ = std::clamp(cols, 1, 10000);
+    rows_ = std::clamp(rows, 1, 10000);
     scrollTop_ = 0;
     scrollBottom_ = rows_ - 1;
     cursorX_ = 0;
     cursorY_ = 0;
 
-    screen_.assign(rows_, std::vector<Cell>(cols_, Cell{}));
+    screen_.clear();
+    screen_.resize(static_cast<size_t>(rows_));
+    for (auto& row : screen_) {
+        row.assign(static_cast<size_t>(cols_), Cell{});
+    }
 
     return true;
 }
@@ -175,14 +179,18 @@ void TerminalEmulator::inputKey(int keyCode, int modifiers) {
 }
 
 void TerminalEmulator::resize(int cols, int rows) {
-    cols_ = std::max(1, cols);
-    rows_ = std::max(1, rows);
+    cols_ = std::clamp(cols, 1, 10000);
+    rows_ = std::clamp(rows, 1, 10000);
 
-    // Resize screen buffer
-    std::vector<std::vector<Cell>> newScreen(rows_, std::vector<Cell>(cols_, Cell{}));
-    for (int i = 0; i < rows_ && i < static_cast<int>(screen_.size()); ++i) {
-        for (int j = 0; j < cols_ && j < static_cast<int>(screen_[i].size()); ++j) {
-            newScreen[i][j] = screen_[i][j];
+    // Resize screen buffer without fill-copying temporary rows
+    std::vector<std::vector<Cell>> newScreen(static_cast<size_t>(rows_));
+    for (int i = 0; i < rows_; ++i) {
+        newScreen[i].assign(static_cast<size_t>(cols_), Cell{});
+        if (i < static_cast<int>(screen_.size())) {
+            int copyCols = std::min(cols_, static_cast<int>(screen_[i].size()));
+            for (int j = 0; j < copyCols; ++j) {
+                newScreen[i][j] = screen_[i][j];
+            }
         }
     }
 
