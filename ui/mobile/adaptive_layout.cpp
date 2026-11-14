@@ -36,14 +36,18 @@ void AdaptiveLayoutManager::updateDeviceInfo(const DeviceInfo& info) {
     }
     
     // Notify callbacks
-    if (deviceInfo_.formFactor != lastFormFactor_ && onFormFactorChanged) {
-        onFormFactorChanged(deviceInfo_.formFactor);
+    if (deviceInfo_.formFactor != lastFormFactor_) {
         lastFormFactor_ = deviceInfo_.formFactor;
+        if (onFormFactorChanged) {
+            onFormFactorChanged(deviceInfo_.formFactor);
+        }
     }
-    
-    if (deviceInfo_.orientation != lastOrientation_ && onOrientationChanged) {
-        onOrientationChanged(deviceInfo_.orientation);
+
+    if (deviceInfo_.orientation != lastOrientation_) {
         lastOrientation_ = deviceInfo_.orientation;
+        if (onOrientationChanged) {
+            onOrientationChanged(deviceInfo_.orientation);
+        }
     }
 }
 
@@ -123,44 +127,45 @@ float AdaptiveLayoutManager::getLongPressTimeout() const {
 AdaptiveContainer::AdaptiveContainer() = default;
 
 void AdaptiveContainer::rebuild() {
-    if (!builder_) return;
-    
+    if (!builder_ && !phoneLayout_ && !tabletLayout_ && !desktopLayout_) return;
+
     FormFactor newFormFactor = AdaptiveLayoutManager::getInstance().getFormFactor();
-    
-    if (newFormFactor != currentFormFactor_) {
+
+    if (newFormFactor != currentFormFactor_ || !currentLayout_) {
         currentFormFactor_ = newFormFactor;
-        
+
         // Remove current layout
         if (currentLayout_) {
             removeChild(currentLayout_);
+            currentLayout_.reset();
         }
-        
+
         // Get new layout for current form factor
         Widget::Ptr newLayout;
-        
+
         if (builder_) {
             newLayout = builder_(currentFormFactor_);
         } else {
             switch (currentFormFactor_) {
                 case FormFactor::Phone:
-                    newLayout = phoneLayout_;
+                    newLayout = phoneLayout_ ? phoneLayout_ : desktopLayout_;
                     break;
                 case FormFactor::Tablet:
-                    newLayout = tabletLayout_;
+                    newLayout = tabletLayout_ ? tabletLayout_ : (desktopLayout_ ? desktopLayout_ : phoneLayout_);
                     break;
                 case FormFactor::Desktop:
                 case FormFactor::LargeDesktop:
                 case FormFactor::TV:
-                    newLayout = desktopLayout_;
+                    newLayout = desktopLayout_ ? desktopLayout_ : tabletLayout_;
                     break;
             }
         }
-        
+
         if (newLayout) {
             currentLayout_ = newLayout;
             addChild(currentLayout_);
         }
-        
+
         markDirty();
     }
 }
@@ -249,16 +254,16 @@ Vec2 BottomNavigationBar::measure(float availableWidth, float availableHeight) {
 }
 
 bool BottomNavigationBar::onMouseDown(const Core::MouseButtonPressEvent& event) {
-    if (items_.empty()) return false;
-    
-    float itemWidth = getBounds().width / items_.size();
+    if (items_.empty() || getBounds().width <= 0.0f) return false;
+
+    float itemWidth = getBounds().width / static_cast<float>(items_.size());
     int index = static_cast<int>((event.x - getBounds().x) / itemWidth);
-    
+
     if (index >= 0 && index < static_cast<int>(items_.size())) {
         setSelectedIndex(index);
         return true;
     }
-    
+
     return false;
 }
 
@@ -330,10 +335,100 @@ Vec2 FloatingActionButton::measure(float availableWidth, float availableHeight) 
 }
 
 bool FloatingActionButton::onMouseDown(const Core::MouseButtonPressEvent& event) {
+    (void)event;
     if (onPressed) {
         onPressed();
     }
     return true;
 }
+
+// SwipeableDrawer implementation
+SwipeableDrawer::SwipeableDrawer(Position position) : position_(position) {}
+
+void SwipeableDrawer::open() {
+    open_ = true;
+    targetProgress_ = 1.0f;
+    if (onStateChanged) onStateChanged(true);
+    markDirty();
+}
+
+void SwipeableDrawer::close() {
+    open_ = false;
+    targetProgress_ = 0.0f;
+    if (onStateChanged) onStateChanged(false);
+    markDirty();
+}
+
+void SwipeableDrawer::toggle() {
+    if (open_) close();
+    else open();
+}
+
+void SwipeableDrawer::render(RenderEngine& renderer) {
+    if (!isVisible() || openProgress_ <= 0.001f) return;
+    const Rect& bounds = getBounds();
+    Color scrim = scrimColor_;
+    scrim.a *= openProgress_;
+    renderer.drawRect(bounds, scrim);
+
+    Rect drawerRect = bounds;
+    if (position_ == Position::Left) {
+        drawerRect.width = drawerWidth_;
+        drawerRect.x = bounds.x - drawerWidth_ * (1.0f - openProgress_);
+    } else if (position_ == Position::Right) {
+        drawerRect.width = drawerWidth_;
+        drawerRect.x = bounds.x + bounds.width - drawerWidth_ * openProgress_;
+    } else {
+        drawerRect.height = drawerWidth_;
+        drawerRect.y = bounds.y + bounds.height - drawerWidth_ * openProgress_;
+    }
+    renderer.drawRect(drawerRect, Color(0.14f, 0.14f, 0.18f));
+    renderChildren(renderer);
+}
+
+void SwipeableDrawer::update(double deltaTime) {
+    Container::update(deltaTime);
+    float diff = targetProgress_ - openProgress_;
+    if (std::abs(diff) > 0.001f) {
+        openProgress_ += diff * std::min(1.0f, static_cast<float>(deltaTime) * 10.0f);
+        markDirty();
+    } else {
+        openProgress_ = targetProgress_;
+    }
+}
+
+// PullToRefresh implementation
+PullToRefresh::PullToRefresh() = default;
+
+void PullToRefresh::setRefreshing(bool refreshing) {
+    refreshing_ = refreshing;
+    if (!refreshing_) pullDistance_ = 0.0f;
+    markDirty();
+}
+
+void PullToRefresh::render(RenderEngine& renderer) {
+    if (!isVisible()) return;
+    if (refreshing_ || pullDistance_ > 0.0f) {
+        const Rect& b = getBounds();
+        renderer.drawCircle(b.x + b.width * 0.5f, b.y + 20.0f, 10.0f, Color(0.4f, 0.6f, 1.0f), false);
+    }
+    renderChildren(renderer);
+}
+
+// VirtualKeyboardHandler implementation
+VirtualKeyboardHandler& VirtualKeyboardHandler::getInstance() {
+    static VirtualKeyboardHandler instance;
+    return instance;
+}
+
+void VirtualKeyboardHandler::setKeyboardVisible(bool visible, float height) {
+    keyboardVisible_ = visible;
+    keyboardHeight_ = visible ? height : 0.0f;
+    if (onKeyboardChanged) onKeyboardChanged(keyboardVisible_, keyboardHeight_);
+}
+
+void VirtualKeyboardHandler::showKeyboard() { setKeyboardVisible(true, keyboardHeight_ > 0 ? keyboardHeight_ : 280.0f); }
+void VirtualKeyboardHandler::hideKeyboard() { setKeyboardVisible(false, 0.0f); }
+void VirtualKeyboardHandler::setInputType(const std::string& type) { (void)type; }
 
 } // namespace NexusForge::UI::Mobile

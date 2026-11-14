@@ -1,12 +1,12 @@
 // ui/renderer/metal_backend.mm
 // Metal Backend Implementation (Stub)
 
-#import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
-
 #include "metal_backend.hpp"
 
 #ifdef NEXUS_ENABLE_METAL
+
+#import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
 
 namespace NexusForge::UI {
 
@@ -62,6 +62,20 @@ void MetalBackend::setProjection(const Mat4& projection) {
 
 void MetalBackend::clear(const Color& color) {
     clearColor_ = color;
+}
+
+void MetalBackend::executeDrawCommand(const DrawCommand& cmd) {
+    switch (cmd.type) {
+        case DrawCommandType::DrawRect: drawRect(cmd.rect, cmd.color); break;
+        case DrawCommandType::DrawRoundedRect: drawRoundedRect(cmd.rect, cmd.color, cmd.cornerRadius); break;
+        case DrawCommandType::DrawImage: drawTexture(cmd.texture, cmd.rect, cmd.color); break;
+        case DrawCommandType::DrawLine: drawLine(cmd.rect.x, cmd.rect.y, cmd.rect.right(), cmd.rect.bottom(), cmd.color, cmd.thickness); break;
+        case DrawCommandType::DrawCircle: drawCircle(cmd.rect.x + cmd.rect.width * 0.5f, cmd.rect.y + cmd.rect.height * 0.5f, std::min(cmd.rect.width, cmd.rect.height) * 0.5f, cmd.color, cmd.filled); break;
+        case DrawCommandType::DrawText: drawText(cmd.text, cmd.rect.x, cmd.rect.y, cmd.color, cmd.fontFamily, cmd.fontSize); break;
+        case DrawCommandType::SetClipRect: setClipRect(cmd.clipRect); break;
+        case DrawCommandType::ClearClipRect: clearClipRect(); break;
+        default: break;
+    }
 }
 
 void MetalBackend::drawRect(const Rect& rect, const Color& color) {

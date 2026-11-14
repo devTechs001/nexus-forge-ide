@@ -66,13 +66,15 @@ nexus_aes_encrypt_block:
     ; AddRoundKey (initial)
     mov rcx, 16
 .addkey_loop:
-    mov al, [r12 + rcx - 16]
-    xor al, [r13 + rcx - 16]
-    mov [r12 + rcx - 16], al
+    mov al, [r12 + rcx - 1]
+    xor al, [r13 + rcx - 1]
+    mov [r12 + rcx - 1], al
     loop .addkey_loop
 
     ; Main rounds (simplified - just SubBytes for demo)
     mov edi, r14d
+    test edi, edi
+    jle .done_aes
     dec edi           ; rounds - 1
 
 .main_round:
@@ -80,11 +82,11 @@ nexus_aes_encrypt_block:
     jz .final_round
 
     ; SubBytes
-    mov ecx, 16
+    mov rcx, 16
 .subbytes_loop:
-    movzx eax, byte [r12 + rcx - 16]
+    movzx eax, byte [r12 + rcx - 1]
     mov al, [rel aes_sbox + rax]
-    mov [r12 + rcx - 16], al
+    mov [r12 + rcx - 1], al
     loop .subbytes_loop
 
     ; ShiftRows and MixColumns would go here
@@ -94,21 +96,22 @@ nexus_aes_encrypt_block:
 
 .final_round:
     ; Final round (no MixColumns)
-    mov ecx, 16
+    mov rcx, 16
 .final_sub:
-    movzx eax, byte [r12 + rcx - 16]
+    movzx eax, byte [r12 + rcx - 1]
     mov al, [rel aes_sbox + rax]
-    mov [r12 + rcx - 16], al
+    mov [r12 + rcx - 1], al
     loop .final_sub
 
     ; Final AddRoundKey
-    mov ecx, 16
+    mov rcx, 16
 .final_key:
-    mov al, [r12 + rcx - 16]
-    xor al, [r13 + rcx - 16]
-    mov [r12 + rcx - 16], al
+    mov al, [r12 + rcx - 1]
+    xor al, [r13 + rcx - 1]
+    mov [r12 + rcx - 1], al
     loop .final_key
 
+.done_aes:
     pop r15
     pop r14
     pop r13
@@ -126,8 +129,8 @@ nexus_crc32_fast:
     mov rbp, rsp
     push rbx
 
-    mov rax, rdx      ; crc
-    not rax           ; initialize
+    mov eax, edx      ; 32-bit crc (zero-extends into rax)
+    not eax           ; 32-bit invert (keeps upper 32 bits zero)
 
     test rsi, rsi
     jz .crc_done
@@ -136,7 +139,7 @@ nexus_crc32_fast:
     mov rdx, rdi      ; data
 
 .crc_loop:
-    movzx rbx, byte [rdx]
+    movzx ebx, byte [rdx]
     xor al, bl
     
     ; Process 8 bits
@@ -144,11 +147,11 @@ nexus_crc32_fast:
 .bit_loop:
     test al, 1
     jz .no_xor
-    shr rax, 1
-    xor rax, 0xEDB88320
+    shr eax, 1
+    xor eax, 0xEDB88320
     jmp .bit_done
 .no_xor:
-    shr rax, 1
+    shr eax, 1
 .bit_done:
     dec ebx
     jnz .bit_loop
@@ -158,7 +161,7 @@ nexus_crc32_fast:
     jnz .crc_loop
 
 .crc_done:
-    not rax
+    not eax
     pop rbx
     pop rbp
     ret

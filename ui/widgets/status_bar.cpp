@@ -100,31 +100,31 @@ void StatusBar::render(RenderEngine& renderer) {
     // Draw status items
     for (int i = static_cast<int>(items_.size()) - 1; i >= 0; --i) {
         const StatusItem& item = items_[i];
-        
-        // Calculate item width based on text
-        float itemWidth = item.text.length() * style_.fontSize * 0.5f + 24;
+
+        float iconOffset = item.icon.empty() ? 0.0f : 18.0f;
+        float itemWidth = static_cast<float>(item.text.length()) * style_.fontSize * 0.5f + 24.0f + iconOffset;
         float itemX = rightX - itemWidth;
-        
+
         // Draw background
         Color bgColor = item.backgroundColor;
         if (i == hoverItemIndex_) {
             bgColor = Color(0.2f, 0.2f, 0.3f, 1.0f);
         }
-        
+
         if (bgColor.a > 0) {
             renderer.drawRect(Rect(itemX, y, itemWidth, itemHeight_), bgColor);
         }
-        
+
         // Draw icon
         if (!item.icon.empty()) {
             renderer.drawText(item.icon, itemX + 6, y + style_.fontSize,
                               item.color, style_.fontFamily, style_.fontSize);
         }
-        
-        // Draw text
-        renderer.drawText(item.text, itemX + 6, y + style_.fontSize,
+
+        // Draw text (offset past icon when present)
+        renderer.drawText(item.text, itemX + 6 + iconOffset, y + style_.fontSize,
                           item.color, style_.fontFamily, style_.fontSize);
-        
+
         rightX = itemX - 4;
     }
     
@@ -171,14 +171,15 @@ int StatusBar::getItemAtPosition(float x, float y) const {
     
     for (int i = static_cast<int>(items_.size()) - 1; i >= 0; --i) {
         const StatusItem& item = items_[i];
-        float itemWidth = item.text.length() * style_.fontSize * 0.5f + 24;
+        float iconOffset = item.icon.empty() ? 0.0f : 18.0f;
+        float itemWidth = static_cast<float>(item.text.length()) * style_.fontSize * 0.5f + 24.0f + iconOffset;
         float itemX = rightX - itemWidth;
-        
+
         if (x >= itemX && x < rightX &&
             y >= bounds_.y && y < bounds_.y + itemHeight_) {
             return i;
         }
-        
+
         rightX = itemX - 4;
     }
     

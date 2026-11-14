@@ -18,7 +18,7 @@
 
 namespace NexusForge::UI {
 
-struct Vertex {
+struct DXVertex {
     float x, y, z;
     float u, v;
     float r, g, b, a;
@@ -174,7 +174,7 @@ void DirectXBackend::shutdown() {
     if (context_) context_->Release();
     if (device_) device_->Release();
     
-    for (auto& texture : textures_) {
+    for (auto& [handle, texture] : textures_) {
         if (texture.resource) texture.resource->Release();
         if (texture.shaderResourceView) texture.shaderResourceView->Release();
     }
@@ -228,6 +228,20 @@ void DirectXBackend::setProjection(const Mat4& projection) {
 
 void DirectXBackend::clear(const Color& color) {
     clearColor_ = color;
+}
+
+void DirectXBackend::executeDrawCommand(const DrawCommand& cmd) {
+    switch (cmd.type) {
+        case DrawCommandType::DrawRect: drawRect(cmd.rect, cmd.color); break;
+        case DrawCommandType::DrawRoundedRect: drawRoundedRect(cmd.rect, cmd.color, cmd.cornerRadius); break;
+        case DrawCommandType::DrawImage: drawTexture(cmd.texture, cmd.rect, cmd.color); break;
+        case DrawCommandType::DrawLine: drawLine(cmd.rect.x, cmd.rect.y, cmd.rect.right(), cmd.rect.bottom(), cmd.color, cmd.thickness); break;
+        case DrawCommandType::DrawCircle: drawCircle(cmd.rect.x + cmd.rect.width * 0.5f, cmd.rect.y + cmd.rect.height * 0.5f, std::min(cmd.rect.width, cmd.rect.height) * 0.5f, cmd.color, cmd.filled); break;
+        case DrawCommandType::DrawText: drawText(cmd.text, cmd.rect.x, cmd.rect.y, cmd.color, cmd.fontFamily, cmd.fontSize); break;
+        case DrawCommandType::SetClipRect: setClipRect(cmd.clipRect); break;
+        case DrawCommandType::ClearClipRect: clearClipRect(); break;
+        default: break;
+    }
 }
 
 void DirectXBackend::drawRect(const Rect& rect, const Color& color) {
@@ -319,21 +333,21 @@ void DirectXBackend::drawCircle(float cx, float cy, float radius, const Color& c
     // Draw circle using triangle fan approximation
     const int segments = 32;
     
-    std::vector<Vertex> vertices;
+    std::vector<DXVertex> vertices;
     vertices.reserve(segments + 2);
-    
+
     // Center vertex
-    Vertex center = { cx, cy, 0.0f, 0.5f, 0.5f, color.r, color.g, color.b, color.a };
+    DXVertex center = { cx, cy, 0.0f, 0.5f, 0.5f, color.r, color.g, color.b, color.a };
     vertices.push_back(center);
-    
+
     // Edge vertices
     for (int i = 0; i <= segments; ++i) {
         float angle = (i / static_cast<float>(segments)) * 2.0f * 3.14159f;
         float x = cx + std::cos(angle) * radius;
         float y = cy + std::sin(angle) * radius;
-        
-        Vertex v = { x, y, 0.0f, 0.5f + 0.5f * std::cos(angle), 0.5f + 0.5f * std::sin(angle), 
-                     color.r, color.g, color.b, color.a };
+
+        DXVertex v = { x, y, 0.0f, 0.5f + 0.5f * std::cos(angle), 0.5f + 0.5f * std::sin(angle),
+                       color.r, color.g, color.b, color.a };
         vertices.push_back(v);
     }
     
@@ -566,25 +580,25 @@ void DirectXBackend::createShaders() {
 
 void DirectXBackend::createBuffers() {
     // Vertex buffer for quad
-    Vertex vertices[] = {
+    DXVertex vertices[] = {
         { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f },
         { 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f },
         { 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
         { 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f }
     };
-    
+
     D3D11_BUFFER_DESC vbDesc = {};
     vbDesc.Usage = D3D11_USAGE_DYNAMIC;
     vbDesc.ByteWidth = sizeof(vertices);
     vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     vbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    
+
     D3D11_SUBRESOURCE_DATA vbData = {};
     vbData.pSysMem = vertices;
-    
+
     device_->CreateBuffer(&vbDesc, &vbData, &vertexBuffer_);
-    
-    vertexStride_ = sizeof(Vertex);
+
+    vertexStride_ = sizeof(DXVertex);
     vertexOffset_ = 0;
     
     // Index buffer

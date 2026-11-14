@@ -75,7 +75,8 @@ nexus_memcmp_avx2:
     ret
 
 .found_diff:
-    ; Find which byte differs
+    ; Invert equality mask so set bits mark differing bytes
+    not eax
     bsf ecx, eax
     movzx eax, byte [r12 + rcx]
     movzx ebx, byte [r13 + rcx]
@@ -117,20 +118,18 @@ nexus_memmove_avx2:
 
     jb .forward_copy    ; dest < src, forward copy is safe
 
-    ; Backward copy for overlapping regions
+    ; Backward copy for overlapping regions (use dl so saved return pointer in rax is preserved)
     lea rdi, [rdi + rcx - 1]
     lea rsi, [rsi + rcx - 1]
-    std                 ; set direction flag
 
 .backward_loop:
-    mov al, [rsi]
-    mov [rdi], al
+    mov dl, [rsi]
+    mov [rdi], dl
     dec rsi
     dec rdi
     dec rcx
     jnz .backward_loop
 
-    cld                 ; clear direction flag
     jmp .move_done
 
 .forward_copy:
@@ -151,8 +150,8 @@ nexus_memmove_avx2:
     test rcx, rcx
     jz .move_done
 
-    mov al, [rsi]
-    mov [rdi], al
+    mov dl, [rsi]
+    mov [rdi], dl
     inc rsi
     inc rdi
     dec rcx
@@ -245,18 +244,16 @@ nexus_memchr_avx2:
     push rbp
     mov rbp, rsp
 
-    mov rax, rdi      ; s
-    movzx ecx, sil    ; c
-    mov rdx, rsi      ; n (actually in rdx from calling convention fix)
-
+    ; rdi = s, esi = c, rdx = n
     test rdx, rdx
     jz .not_found
 
-    ; Broadcast character to all bytes of ymm0
-    mov eax, ecx
-    imul eax, 0x01010101
+    ; Broadcast search byte to all lanes of ymm0 without clobbering rdi/rdx
+    movzx eax, sil
     vmovd xmm0, eax
     vpbroadcastb ymm0, xmm0
+
+    mov rax, rdi      ; current pointer
 
     cmp rdx, 32
     jl .memchr_byte
@@ -314,6 +311,7 @@ nexus_strlen_sse42:
 
     mov rax, rdi
     mov rdx, rdi
+    pxor xmm1, xmm1   ; zero register for null-byte comparison
 
     ; Align to 16 bytes
     mov rcx, rax
@@ -370,23 +368,19 @@ nexus_strncmp_avx2:
     jz .strncmp_equal
 
 .strncmp_loop:
-    dec rcx
-    jz .strncmp_equal
-
     movzx edx, byte [rax]
     movzx esi, byte [rbx]
-
-    cmp dl, 0
-    je .strncmp_equal
-    cmp sil, 0
-    je .strncmp_diff
 
     cmp dl, sil
     jne .strncmp_diff
 
+    test dl, dl
+    jz .strncmp_equal
+
     inc rax
     inc rbx
-    jmp .strncmp_loop
+    dec rcx
+    jnz .strncmp_loop
 
 .strncmp_equal:
     xor eax, eax
@@ -395,9 +389,8 @@ nexus_strncmp_avx2:
     ret
 
 .strncmp_diff:
-    movzx eax, dl
-    movzx ebx, sil
-    sub eax, ebx
+    mov eax, edx
+    sub eax, esi
     pop rbx
     pop rbp
     ret

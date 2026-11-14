@@ -1,6 +1,7 @@
 // config/settings_manager.hpp
 #pragma once
 
+#include "keybinding_manager.hpp"
 #include <string>
 #include <unordered_map>
 #include <memory>
@@ -68,13 +69,6 @@ struct ThemeSettings {
     float uiScale = 1.0f;
     bool enableAnimations = true;
     bool enableShadows = true;
-};
-
-// Keybinding
-struct Keybinding {
-    std::string key;
-    std::string command;
-    std::string when;
 };
 
 // Settings Manager

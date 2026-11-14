@@ -109,13 +109,13 @@ struct WidgetStyle {
     float transitionDuration = 0.15f;
 };
 
-// Animation
-struct Animation {
+// Widget property animation (distinct from UI::Animation in animation_engine.hpp)
+struct WidgetAnimation {
     std::string property;
-    float startValue;
-    float endValue;
-    float duration;
-    float elapsed = 0;
+    float startValue = 0.0f;
+    float endValue = 1.0f;
+    float duration = 0.3f;
+    float elapsed = 0.0f;
     std::function<float(float)> easingFunction;
     std::function<void()> onComplete;
     bool loop = false;
@@ -127,6 +127,7 @@ class Widget : public std::enable_shared_from_this<Widget> {
 public:
     using Ptr = std::shared_ptr<Widget>;
     using WeakPtr = std::weak_ptr<Widget>;
+    using Animation = WidgetAnimation;
 
     Widget();
     virtual ~Widget();

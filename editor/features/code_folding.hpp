@@ -5,8 +5,11 @@
 #include <vector>
 #include <functional>
 #include <optional>
+#include <memory>
 
 namespace NexusForge::Editor {
+
+class TextBuffer;
 
 // Fold range
 struct FoldRange {
@@ -69,8 +72,22 @@ private:
 // Code folding manager
 class CodeFoldingManager {
 public:
+    using FoldRegion = FoldRange;
+
     CodeFoldingManager();
+    explicit CodeFoldingManager(TextBuffer* buffer);
     ~CodeFoldingManager();
+
+    // Buffer-based API
+    void setBuffer(TextBuffer* buffer);
+    void updateFoldRegions();
+    bool isLineFolded(size_t line) const;
+    size_t getFoldedLineCount() const;
+    const std::vector<FoldRegion>& getFoldRegions() const;
+    size_t getNextFoldLine(size_t currentLine) const;
+    size_t getPreviousFoldLine(size_t currentLine) const;
+    bool canFoldAtLine(size_t line) const;
+    std::string getFoldPlaceholder(size_t line) const;
 
     // Providers
     void addProvider(std::shared_ptr<IFoldProvider> provider);
@@ -79,39 +96,41 @@ public:
 
     // Folding
     void updateFolds(const std::string& text);
-    const std::vector<FoldRange>& getFolds() const { return folds_; }
-    
+    const std::vector<FoldRange>& getFolds() const { return foldRegions_; }
+
     // Fold manipulation
     void toggleFold(size_t line);
+    void foldRegion(size_t line);
     void foldRegion(size_t startLine, size_t endLine);
     void unfoldRegion(size_t line);
     void foldAll();
     void unfoldAll();
     void foldLevel(int level);
-    
+
     // Query
-    bool isFolded(size_t line) const;
+    bool isFolded(size_t line) const { return isLineFolded(line); }
     std::optional<FoldRange> getFoldAtLine(size_t line) const;
     std::vector<FoldRange> getFoldsInRange(size_t startLine, size_t endLine) const;
-    
+
     // Visibility
-    size_t getNextFoldedLine(size_t fromLine) const;
-    size_t getPreviousFoldedLine(size_t fromLine) const;
-    
+    size_t getNextFoldedLine(size_t fromLine) const { return getNextFoldLine(fromLine); }
+    size_t getPreviousFoldedLine(size_t fromLine) const { return getPreviousFoldLine(fromLine); }
+
     // Line mapping (for rendering)
     size_t documentLineToViewLine(size_t docLine) const;
     size_t viewLineToDocumentLine(size_t viewLine) const;
-    bool isLineVisible(size_t line) const;
+    bool isLineVisible(size_t line) const { return !isLineFolded(line); }
 
     // Events
     using FoldChangedCallback = std::function<void(const FoldRange&, bool)>;
     void addFoldChangedListener(FoldChangedCallback callback);
 
 private:
+    TextBuffer* buffer_ = nullptr;
     std::vector<std::shared_ptr<IFoldProvider>> providers_;
-    std::vector<FoldRange> folds_;
+    std::vector<FoldRange> foldRegions_;
     std::vector<FoldChangedCallback> listeners_;
-    
+
     void notifyFoldChanged(const FoldRange& fold, bool collapsed);
     void recalculateVisibility();
 };

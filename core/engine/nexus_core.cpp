@@ -106,10 +106,10 @@ int NexusEngine::runMainLoop() {
 
         // Update statistics
         stats_.frameTime = deltaTime_;
-        stats_.fps = 1.0 / deltaTime_;
+        stats_.fps = (deltaTime_ > 1e-9) ? (1.0 / deltaTime_) : 0.0;
         stats_.frameCount++;
-        stats_.memoryUsed = memoryManager_->getUsedMemory();
-        stats_.activeThreads = threadPool_->getActiveThreadCount();
+        stats_.memoryUsed = memoryManager_ ? memoryManager_->getUsedMemory() : 0;
+        stats_.activeThreads = threadPool_ ? threadPool_->getActiveThreadCount() : 0;
 
         // Process frame
         tick();
@@ -130,9 +130,12 @@ int NexusEngine::runMainLoop() {
 }
 
 void NexusEngine::tick() {
-    eventSystem_->processEvents();
-    fileWatcher_->update();
-    extensionManager_->update(deltaTime_);
+    if (eventSystem_) {
+        eventSystem_->processEvents();
+        eventSystem_->updateDeferred(deltaTime_);
+    }
+    if (fileWatcher_) fileWatcher_->update();
+    if (extensionManager_) extensionManager_->update(deltaTime_);
 }
 
 void NexusEngine::render() {

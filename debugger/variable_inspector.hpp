@@ -4,10 +4,30 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <functional>
 #include <optional>
 
 namespace NexusForge::Debugger {
+
+// Variable scope enum
+enum class VariableScope {
+    Local,
+    Static,
+    Global,
+    Argument,
+    Register,
+    Special
+};
+
+// Display value format
+enum class ValueFormat {
+    Default,
+    Decimal,
+    Hexadecimal,
+    Binary,
+    Character
+};
 
 // Variable type
 enum class VariableType {
@@ -25,20 +45,30 @@ enum class VariableType {
     Symbol
 };
 
-// Variable representation
+// Variable representation (unified across DAP and VariableInspector)
 struct Variable {
     std::string name;
     std::string value;
     std::string type;
     VariableType variableType = VariableType::Unknown;
+    VariableScope scope = VariableScope::Local;
     std::string memoryReference;
-    int variablesReference = 0;  // For child variables
+    int variablesReference = 0;
+    int childrenReference = 0;
     int namedVariables = 0;
     int indexedVariables = 0;
     bool hasChildren = false;
     std::string evaluateName;
     std::string presentationHint;
     bool readOnly = false;
+    std::vector<Variable> children;
+};
+
+// Variable tree node
+struct VariableTreeNode {
+    std::string name;
+    bool expanded = false;
+    std::vector<Variable> children;
 };
 
 // Scope representation
@@ -57,7 +87,7 @@ struct Scope {
 
 // Watch expression
 struct WatchExpression {
-    std::string id;
+    int id = 0;
     std::string expression;
     Variable result;
     bool error = false;
@@ -85,7 +115,37 @@ public:
     VariableInspector();
     ~VariableInspector();
 
-    // Scopes
+    // Direct variable management
+    void setVariables(const std::vector<Variable>& variables);
+    void addVariable(const Variable& var);
+    void updateVariable(const std::string& name, const std::string& value);
+    void removeVariable(const std::string& name);
+    void clear();
+
+    const std::vector<Variable>& getVariables() const;
+    const std::vector<VariableTreeNode>& getVariableTree() const;
+    Variable* getVariable(const std::string& name);
+
+    // Filtering & search
+    std::vector<Variable> filterVariables(VariableScope scope) const;
+    std::vector<Variable> filterByType(const std::string& type) const;
+    std::vector<Variable> searchVariables(const std::string& query) const;
+
+    // Tree expansion
+    void expandVariable(const std::string& name);
+    void collapseVariable(const std::string& name);
+    bool isExpanded(const std::string& name) const;
+
+    // Formatting
+    std::string formatValue(const Variable& var, ValueFormat format) const;
+    std::string formatAsDecimal(const std::string& value) const;
+    std::string formatAsHex(const std::string& value) const;
+    std::string formatAsBinary(const std::string& value) const;
+    std::string formatAsCharacter(const std::string& value) const;
+    std::string getTypeIcon(const std::string& type) const;
+    std::string getScopeName(VariableScope scope) const;
+
+    // Scopes & DAP queries
     std::vector<Scope> getScopes(int frameId);
     std::vector<Variable> getVariables(int variablesReference,
                                         int start = 0, int count = 0);
@@ -93,8 +153,14 @@ public:
     // Evaluate
     Variable evaluate(const std::string& expression, int frameId = 0,
                       const std::string& context = "repl");
+    std::string evaluateExpression(const std::string& expression);
 
     // Watch expressions
+    void setWatchExpression(const std::string& expression);
+    void removeWatchExpression(int id);
+    const std::vector<WatchExpression>& getWatchExpressions() const;
+    void updateWatchExpressions(const std::function<void(WatchExpression&)>& evaluator);
+
     std::string addWatch(const std::string& expression);
     void removeWatch(const std::string& id);
     void updateWatches();
@@ -120,11 +186,17 @@ public:
     void setMaxObjectProperties(size_t count) { maxObjectProperties_ = count; }
 
 private:
+    std::vector<Variable> variables_;
+    std::vector<VariableTreeNode> variableTree_;
+    std::unordered_set<std::string> expandedVariables_;
     std::vector<WatchExpression> watches_;
+    int nextWatchId_ = 1;
     size_t maxStringLength_ = 10000;
     size_t maxArrayItems_ = 100;
     size_t maxObjectProperties_ = 100;
 
+    void loadChildren(Variable& parent);
+    void buildVariableTree();
     Variable createPrimitiveVariable(const std::string& name,
                                       const std::string& value,
                                       const std::string& type);

@@ -4,9 +4,11 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <functional>
 #include <memory>
 #include <future>
+#include <cstdint>
 
 namespace NexusForge::Editor {
 
@@ -18,10 +20,14 @@ struct Position {
     bool operator==(const Position& other) const {
         return line == other.line && character == other.character;
     }
+    bool operator!=(const Position& other) const { return !(*this == other); }
     bool operator<(const Position& other) const {
         if (line != other.line) return line < other.line;
         return character < other.character;
     }
+    bool operator<=(const Position& other) const { return !(other < *this); }
+    bool operator>(const Position& other) const { return other < *this; }
+    bool operator>=(const Position& other) const { return !(*this < other); }
 };
 
 // LSP Range
@@ -87,7 +93,9 @@ enum class CompletionItemKind {
     TypeParameter = 25
 };
 
-// Completion item
+using CompletionKind = CompletionItemKind;
+
+// Completion item (unified across LSP and local providers)
 struct CompletionItem {
     std::string label;
     CompletionItemKind kind = CompletionItemKind::Text;
@@ -98,10 +106,19 @@ struct CompletionItem {
     std::string insertText;
     std::string textEdit;
     int insertTextFormat = 1;  // 1 = plain, 2 = snippet
+    std::string command;
     std::vector<std::string> additionalTextEdits;
     std::vector<std::string> commitCharacters;
     bool deprecated = false;
     bool preselect = false;
+    std::string language;
+    std::string scope;
+    void* data = nullptr;
+};
+
+struct CompletionList {
+    bool isIncomplete = false;
+    std::vector<CompletionItem> items;
 };
 
 // Hover contents
@@ -205,9 +222,32 @@ struct FormattingOptions {
     bool trimFinalNewlines = false;
 };
 
+// Server capabilities
+struct ServerCapabilities {
+    bool completionProvider = false;
+    bool hoverProvider = false;
+    bool signatureHelpProvider = false;
+    bool definitionProvider = false;
+    bool typeDefinitionProvider = false;
+    bool implementationProvider = false;
+    bool referencesProvider = false;
+    bool documentSymbolProvider = false;
+    bool workspaceSymbolProvider = false;
+    bool codeActionProvider = false;
+    bool codeLensProvider = false;
+    bool documentLinkProvider = false;
+    bool documentFormattingProvider = false;
+    bool documentRangeFormattingProvider = false;
+    bool renameProvider = false;
+    bool foldingRangeProvider = false;
+};
+
 // LSP Client
 class LSPClient {
 public:
+    using ServerCapabilities = NexusForge::Editor::ServerCapabilities;
+    using ResponseCallback = std::function<void(const std::string&)>;
+
     LSPClient();
     ~LSPClient();
 
@@ -215,7 +255,8 @@ public:
     bool connect(const std::string& serverPath, const std::vector<std::string>& args = {});
     bool connectTcp(const std::string& host, int port);
     void disconnect();
-    bool isConnected() const { return connected_; }
+    bool isConnected() const;
+    bool isInitialized() const;
 
     // Lifecycle
     bool initialize(const std::string& rootUri, const std::string& clientInfo = "NexusForge");
@@ -224,23 +265,26 @@ public:
     void exit();
 
     // Document management
-    void openDocument(const std::string& uri, const std::string& text, const std::string& languageId);
+    void openDocument(const std::string& uri, const std::string& languageId, const std::string& text);
     void closeDocument(const std::string& uri);
     void changeDocument(const std::string& uri, const std::string& text,
                         size_t version, const std::vector<Range>& ranges = {});
     void saveDocument(const std::string& uri);
 
     // Completions
+    std::future<CompletionList> completion(const std::string& uri, int line, int column);
     std::future<std::vector<CompletionItem>> getCompletions(const std::string& uri, Position position);
     std::future<std::string> resolveCompletionItem(const CompletionItem& item);
 
     // Hover
+    std::future<Hover> hover(const std::string& uri, int line, int column);
     std::future<Hover> getHover(const std::string& uri, Position position);
 
     // Signature help
     std::future<SignatureHelp> getSignatureHelp(const std::string& uri, Position position);
 
     // Go to definition
+    std::future<Location> definition(const std::string& uri, int line, int column);
     std::future<std::vector<Location>> getDefinition(const std::string& uri, Position position);
 
     // Go to type definition
@@ -250,16 +294,21 @@ public:
     std::future<std::vector<Location>> getImplementation(const std::string& uri, Position position);
 
     // References
+    std::future<std::vector<Location>> references(const std::string& uri, int line, int column,
+                                                  bool includeDeclaration = true);
     std::future<std::vector<Location>> getReferences(const std::string& uri, Position position,
                                                       bool includeDeclaration = true);
 
     // Document symbols
+    std::future<std::vector<DocumentSymbol>> documentSymbol(const std::string& uri);
     std::future<std::vector<DocumentSymbol>> getDocumentSymbols(const std::string& uri);
 
     // Workspace symbols
     std::future<std::vector<SymbolInformation>> getWorkspaceSymbols(const std::string& query);
 
     // Code actions
+    std::future<std::vector<CodeAction>> codeAction(const std::string& uri, int line, int column,
+                                                     const std::vector<Diagnostic>& diagnostics);
     std::future<std::vector<CodeAction>> getCodeActions(const std::string& uri, Range range,
                                                          const std::vector<Diagnostic>& diagnostics);
 
@@ -270,6 +319,7 @@ public:
     std::future<std::vector<DocumentLink>> getDocumentLinks(const std::string& uri);
 
     // Formatting
+    std::future<std::string> formatDocument(const std::string& uri);
     std::future<std::string> formatDocument(const std::string& uri, const FormattingOptions& options);
     std::future<std::string> formatRange(const std::string& uri, Range range,
                                           const FormattingOptions& options);
@@ -281,45 +331,47 @@ public:
                                      const std::string& newName);
 
     // Diagnostics
+    std::future<std::vector<Diagnostic>> getDiagnostics();
     using DiagnosticCallback = std::function<void(const std::string&, const std::vector<Diagnostic>&)>;
     void setDiagnosticCallback(DiagnosticCallback callback);
 
+    // Incoming protocol message handler
+    void onMessageReceived(const std::string& message);
+
     // Capabilities
-    struct ServerCapabilities {
-        bool completionProvider = false;
-        bool hoverProvider = false;
-        bool signatureHelpProvider = false;
-        bool definitionProvider = false;
-        bool typeDefinitionProvider = false;
-        bool implementationProvider = false;
-        bool referencesProvider = false;
-        bool documentSymbolProvider = false;
-        bool workspaceSymbolProvider = false;
-        bool codeActionProvider = false;
-        bool codeLensProvider = false;
-        bool documentLinkProvider = false;
-        bool documentFormattingProvider = false;
-        bool documentRangeFormattingProvider = false;
-        bool renameProvider = false;
-        bool foldingRangeProvider = false;
-    };
     const ServerCapabilities& getCapabilities() const { return capabilities_; }
+    const ServerCapabilities& getServerCapabilities() const { return capabilities_; }
 
     // Events
+    std::function<void()> onInitialized;
     std::function<void(const std::string&)> onPublishDiagnostics;
     std::function<void(const std::string&)> onShowMessage;
 
 private:
+    void* serverProcess_ = nullptr;
+    std::string serverCommand_;
+    std::vector<std::string> serverArgs_;
+    int requestId_ = 1;
     bool connected_ = false;
     bool initialized_ = false;
     ServerCapabilities capabilities_;
     DiagnosticCallback diagnosticCallback_;
+    std::unordered_set<std::string> openDocuments_;
+    std::vector<Diagnostic> diagnostics_;
+    std::unordered_map<int, ResponseCallback> pendingRequests_;
 
     // Internal
+    void sendInitialize();
+    void sendShutdown();
+    void sendRequest(const std::string& method, const std::string& params, ResponseCallback callback);
+    void sendNotification(const std::string& method, const std::string& params);
+    void sendMessage(const std::string& message);
     void sendMessage(const std::string& method, const std::string& params);
     std::string sendRequest(const std::string& method, const std::string& params);
     void processMessages();
     void handleMessage(const std::string& message);
+    uint32_t getCurrentProcessId() const;
+    std::string getWorkingDirectory() const;
 
     // Process handling
 #ifdef _WIN32

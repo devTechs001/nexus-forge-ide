@@ -28,23 +28,29 @@ bool UICore::initialize(void* windowHandle, int width, int height) {
 }
 
 void UICore::shutdown() {
+    context_.focusedWidget = nullptr;
+    context_.hoveredWidget = nullptr;
+    context_.captureWidget = nullptr;
+    context_.rootWidget = nullptr;
     rootWidget_.reset();
-    context_.renderEngine->shutdown();
-    context_.renderEngine.reset();
+    if (context_.renderEngine) {
+        context_.renderEngine->shutdown();
+        context_.renderEngine.reset();
+    }
     context_.layoutEngine.reset();
     context_.themeManager.reset();
 }
 
 void UICore::render() {
     if (!context_.renderEngine) return;
-    
+
     context_.renderEngine->beginFrame();
     context_.renderEngine->clear(Color::fromHex("#1E1E2E"));
-    
+
     if (rootWidget_) {
         rootWidget_->render(*context_.renderEngine);
     }
-    
+
     context_.renderEngine->endFrame();
     context_.renderEngine->present();
 }
@@ -53,7 +59,7 @@ void UICore::update(double deltaTime) {
     if (rootWidget_) {
         rootWidget_->update(deltaTime);
     }
-    
+
     if (layoutDirty_) {
         performLayout();
     }
@@ -61,18 +67,23 @@ void UICore::update(double deltaTime) {
 
 void UICore::handleEvent(Core::Event& event) {
     if (!rootWidget_) return;
-    
-    // Dispatch to widget hierarchy
-    rootWidget_->handleEvent(event);
-    
-    // Handle focus changes
-    if (context_.focusedWidget) {
+
+    // Dispatch to widget hierarchy first
+    bool handled = rootWidget_->handleEvent(event);
+
+    // Fallback to focused widget only if not already handled and distinct from root
+    if (!handled && !event.handled && context_.focusedWidget &&
+        context_.focusedWidget != rootWidget_.get()) {
         context_.focusedWidget->handleEvent(event);
     }
 }
 
 void UICore::setRootWidget(Widget::Ptr root) {
+    context_.focusedWidget = nullptr;
+    context_.hoveredWidget = nullptr;
+    context_.captureWidget = nullptr;
     rootWidget_ = std::move(root);
+    context_.rootWidget = rootWidget_.get();
     invalidateLayout();
 }
 
@@ -110,14 +121,23 @@ void UICore::setFocusedWidget(Widget::Ptr widget) {
     }
 }
 
-Widget::Ptr UICore::hitTest(float x, float y) {
-    if (!rootWidget_) return nullptr;
-    
-    // Simple hit test - would need proper implementation
-    if (rootWidget_->getBounds().contains(x, y)) {
-        return rootWidget_;
+namespace {
+Widget::Ptr hitTestRecursive(const Widget::Ptr& widget, float x, float y) {
+    if (!widget || !widget->isVisible()) return nullptr;
+    if (!widget->getBounds().contains(x, y)) return nullptr;
+
+    const auto& children = widget->getChildren();
+    for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        if (auto hit = hitTestRecursive(*it, x, y)) {
+            return hit;
+        }
     }
-    return nullptr;
+    return widget;
+}
+} // namespace
+
+Widget::Ptr UICore::hitTest(float x, float y) {
+    return hitTestRecursive(rootWidget_, x, y);
 }
 
 void UICore::setDPIScale(float scale) {

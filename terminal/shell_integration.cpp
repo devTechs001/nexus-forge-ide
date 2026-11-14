@@ -370,26 +370,135 @@ bool ShellIntegration::saveHistory(const std::string& filePath) const {
 bool ShellIntegration::loadHistory(const std::string& filePath) {
     std::ifstream file(filePath);
     if (!file.is_open()) return false;
-    
+
     commandHistory_.clear();
-    
+
     std::string line;
     while (std::getline(file, line)) {
+        if (line.empty()) continue;
         std::istringstream iss(line);
-        CommandHistoryEntry entry;
-        
-        time_t timestamp;
-        if (!(iss >> timestamp >> entry.exitCode >> entry.durationMs >> entry.directory)) {
+        std::string tsStr, exitStr, durStr, dirStr, cmdStr;
+        if (!std::getline(iss, tsStr, '\t') ||
+            !std::getline(iss, exitStr, '\t') ||
+            !std::getline(iss, durStr, '\t') ||
+            !std::getline(iss, dirStr, '\t')) {
             continue;
         }
-        
-        entry.timestamp = std::chrono::system_clock::from_time_t(timestamp);
-        std::getline(iss >> std::ws, entry.command);
-        
-        commandHistory_.push_back(entry);
+        std::getline(iss, cmdStr);
+
+        try {
+            CommandHistoryEntry entry;
+            std::time_t timestamp = static_cast<std::time_t>(std::stoll(tsStr));
+            entry.exitCode = std::stoi(exitStr);
+            entry.durationMs = std::stoi(durStr);
+            entry.directory = dirStr;
+            entry.command = cmdStr;
+            entry.timestamp = std::chrono::system_clock::from_time_t(timestamp);
+            commandHistory_.push_back(std::move(entry));
+        } catch (...) {
+            continue;
+        }
     }
-    
+
     return true;
+}
+
+void ShellIntegration::shutdown() {
+    currentCommand_.clear();
+}
+
+std::string ShellIntegration::getShellName() const {
+    switch (shellType_) {
+        case ShellType::Bash: return "bash";
+        case ShellType::Zsh: return "zsh";
+        case ShellType::Fish: return "fish";
+        case ShellType::PowerShell: return "powershell";
+        case ShellType::Cmd: return "cmd";
+        case ShellType::Custom: return "custom";
+        default: return "unknown";
+    }
+}
+
+DetectedCommand ShellIntegration::parseCommand(const std::string& output) {
+    DetectedCommand cmd;
+    std::istringstream iss(output);
+    std::string token;
+    if (iss >> token) {
+        cmd.name = token;
+        cmd.fullPath = token;
+        while (iss >> token) cmd.args.push_back(token);
+    }
+    return cmd;
+}
+
+std::string ShellIntegration::extractCwd(const std::string& output) {
+    const std::string marker = "CurrentDir=";
+    size_t pos = output.find(marker);
+    if (pos == std::string::npos) return "";
+    pos += marker.size();
+    size_t end = output.find_first_of("\x07\x1b\r\n", pos);
+    return end == std::string::npos ? output.substr(pos) : output.substr(pos, end - pos);
+}
+
+std::string ShellIntegration::extractExitCode(const std::string& output) {
+    const std::string marker = "133;D;";
+    size_t pos = output.find(marker);
+    if (pos == std::string::npos) return "";
+    pos += marker.size();
+    size_t end = output.find_first_of(";\x07\x1b\r\n", pos);
+    return end == std::string::npos ? output.substr(pos) : output.substr(pos, end - pos);
+}
+
+bool ShellIntegration::isPrompt(const std::string& line) const {
+    if (line.empty()) return false;
+    return line.find("$ ") != std::string::npos || line.find("# ") != std::string::npos ||
+           line.find("> ") != std::string::npos;
+}
+
+std::string ShellIntegration::getPromptPattern() const { return promptPattern_; }
+
+std::vector<std::string> ShellIntegration::getSuggestions(const std::string& prefix) {
+    std::vector<std::string> suggestions;
+    for (auto it = commandHistory_.rbegin(); it != commandHistory_.rend(); ++it) {
+        if (it->command.rfind(prefix, 0) == 0 &&
+            std::find(suggestions.begin(), suggestions.end(), it->command) == suggestions.end()) {
+            suggestions.push_back(it->command);
+            if (suggestions.size() >= 10) break;
+        }
+    }
+    return suggestions;
+}
+
+std::string ShellIntegration::createFileUrl(const std::string& path) { return "file://" + path; }
+std::string ShellIntegration::parseFileUrl(const std::string& url) {
+    const std::string prefix = "file://";
+    return url.rfind(prefix, 0) == 0 ? url.substr(prefix.size()) : url;
+}
+std::string ShellIntegration::createCurrentDirOsc(const std::string& path) {
+    return "\x1b]1337;CurrentDir=" + path + "\x1b\\";
+}
+std::string ShellIntegration::createPromptMarkOsc() { return "\x1b]133;A\x1b\\"; }
+
+void ShellIntegration::setupBash() { promptPattern_ = "$ "; }
+void ShellIntegration::setupZsh() { promptPattern_ = "% "; }
+void ShellIntegration::setupFish() { promptPattern_ = "> "; }
+void ShellIntegration::setupPowerShell() { promptPattern_ = "PS> "; }
+void ShellIntegration::setupCmd() { promptPattern_ = "> "; }
+
+std::string ShellScriptGenerator::getInitScript(ShellType shell) {
+    ShellIntegration si;
+    return si.generateIntegrationScript(shell);
+}
+std::string ShellScriptGenerator::getPromptFunction(ShellType shell) {
+    return getInitScript(shell);
+}
+std::string ShellScriptGenerator::getPreExecFunction(ShellType shell) {
+    (void)shell;
+    return "printf '\\e]133;C\\e\\\\'";
+}
+std::string ShellScriptGenerator::getPostExecFunction(ShellType shell) {
+    (void)shell;
+    return "printf '\\e]133;D;%d\\e\\\\' \"$?\"";
 }
 
 ShellType ShellIntegration::detectShell(const std::string& shellPath) {
@@ -403,7 +512,7 @@ ShellType ShellIntegration::detectShell(const std::string& shellPath) {
                shellPath.find("pwsh") != std::string::npos) {
         return ShellType::PowerShell;
     }
-    
+
     return ShellType::Unknown;
 }
 
@@ -412,7 +521,7 @@ std::string ShellIntegration::getDefaultShell() {
     if (shell) {
         return std::string(shell);
     }
-    
+
     return "/bin/bash";
 }
 

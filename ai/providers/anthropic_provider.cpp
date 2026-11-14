@@ -101,16 +101,18 @@ std::future<ChatResponse> AnthropicProvider::chat(const ChatRequest& request) {
     
     // Convert messages to Claude format
     std::string systemPrompt = request.systemPrompt;
-    
+    bool firstMessage = true;
+
     for (size_t i = 0; i < request.messages.size(); ++i) {
-        if (i > 0) body << ",";
-        
         // Skip system messages - they go in the system field
         if (request.messages[i].role == MessageRole::System) {
             systemPrompt = request.messages[i].content;
             continue;
         }
-        
+
+        if (!firstMessage) body << ",";
+        firstMessage = false;
+
         std::string role = (request.messages[i].role == MessageRole::User) ? "user" : "assistant";
         body << "{\"role\":\"" << role << "\",\"content\":\"" 
              << escapeJson(request.messages[i].content) << "\"}";
@@ -137,7 +139,8 @@ std::future<ChatResponse> AnthropicProvider::chat(const ChatRequest& request) {
 }
 
 void AnthropicProvider::chatStream(const ChatRequest& request, StreamCallback callback) {
-    if (!initialized_ || !callback) {
+    if (!callback) return;
+    if (!initialized_) {
         callback("", true);
         return;
     }

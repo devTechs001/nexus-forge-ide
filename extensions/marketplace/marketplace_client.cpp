@@ -175,4 +175,105 @@ SearchOptions MarketplaceClient::getDefaultSearchOptions() const {
     return options;
 }
 
+std::vector<ExtensionPackage> MarketplaceClient::search(const std::string& query,
+                                                         const std::vector<std::string>& categories) {
+    (void)categories;
+    std::vector<ExtensionPackage> packages;
+    for (const auto& info : searchExtensions(query, getDefaultSearchOptions())) {
+        ExtensionPackage pkg;
+        pkg.id = info.id;
+        pkg.name = info.name;
+        pkg.version = info.version;
+        pkg.publisher = info.publisher;
+        pkg.description = info.description;
+        pkg.downloadUrl = getDownloadUrl(info.id, info.version);
+        pkg.platforms = info.platforms;
+        packages.push_back(std::move(pkg));
+    }
+    return packages;
+}
+
+std::vector<ExtensionPackage> MarketplaceClient::getPopular(int count) {
+    auto pkgs = search("*");
+    if (count >= 0 && static_cast<size_t>(count) < pkgs.size()) {
+        pkgs.resize(static_cast<size_t>(count));
+    }
+    return pkgs;
+}
+
+std::vector<ExtensionPackage> MarketplaceClient::getTrending(int count) {
+    return getPopular(count);
+}
+
+std::vector<ExtensionPackage> MarketplaceClient::getNew(int count) {
+    return getPopular(count);
+}
+
+std::vector<ExtensionPackage> MarketplaceClient::getByCategory(const std::string& category) {
+    return search("*", {category});
+}
+
+std::vector<ExtensionPackage> MarketplaceClient::getByPublisher(const std::string& publisher) {
+    std::vector<ExtensionPackage> packages;
+    for (const auto& info : getPublisherExtensions(publisher)) {
+        if (publisher.empty() || info.publisher == publisher) {
+            ExtensionPackage pkg;
+            pkg.id = info.id;
+            pkg.name = info.name;
+            pkg.version = info.version;
+            pkg.publisher = info.publisher;
+            pkg.description = info.description;
+            pkg.downloadUrl = getDownloadUrl(info.id, info.version);
+            packages.push_back(std::move(pkg));
+        }
+    }
+    return packages;
+}
+
+ExtensionPackage MarketplaceClient::getDetails(const std::string& extensionId) {
+    ExtensionInfo info = getExtensionDetails(extensionId);
+    ExtensionPackage pkg;
+    pkg.id = info.id;
+    pkg.name = info.name;
+    pkg.version = info.version;
+    pkg.publisher = info.publisher;
+    pkg.description = info.description;
+    pkg.downloadUrl = getDownloadUrl(info.id, info.version);
+    return pkg;
+}
+
+std::string MarketplaceClient::getReadme(const std::string& extensionId) {
+    return "# " + extensionId + "\n";
+}
+
+std::vector<std::string> MarketplaceClient::getVersions(const std::string& extensionId) {
+    std::vector<std::string> result;
+    for (const auto& v : getExtensionVersions(extensionId)) {
+        result.push_back(v.version);
+    }
+    return result;
+}
+
+std::string MarketplaceClient::getDownloadUrl(const std::string& extensionId, const std::string& version) {
+    std::string base = !apiEndpoint_.empty() ? apiEndpoint_ : marketplaceUrl_;
+    std::string ver = version.empty() ? "latest" : version;
+    return base + "/extensions/" + extensionId + "/" + ver + "/download";
+}
+
+void MarketplaceClient::setApiEndpoint(const std::string& url) {
+    apiEndpoint_ = url;
+    marketplaceUrl_ = url;
+}
+
+void MarketplaceClient::setApiKey(const std::string& key) {
+    apiKey_ = key;
+    authToken_ = key;
+    authenticated_ = !key.empty();
+}
+
+std::vector<ExtensionPackage> MarketplaceClient::fetchExtensions(const std::string& url) {
+    (void)url;
+    return {};
+}
+
 } // namespace NexusForge::Extensions

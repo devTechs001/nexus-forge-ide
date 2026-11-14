@@ -78,13 +78,15 @@ bool Widget::isVisibleInHierarchy() const {
 }
 
 void Widget::requestFocus() {
-    if (focusPolicy_ != FocusPolicy::NoFocus) {
+    if (focusPolicy_ != FocusPolicy::NoFocus && !hasFocus()) {
         onFocusGained();
     }
 }
 
 void Widget::clearFocus() {
-    onFocusLost();
+    if (hasFocus()) {
+        onFocusLost();
+    }
 }
 
 bool Widget::hasFocus() const {
@@ -153,13 +155,7 @@ void Widget::render(RenderEngine& renderer) {
         }
         gradient.startPoint = {bounds_.x, bounds_.y};
         gradient.endPoint = {bounds_.x + bounds_.width, bounds_.y + bounds_.height};
-        
-        DrawCommand cmd;
-        cmd.type = DrawCommandType::DrawGradient;
-        cmd.rect = bounds_;
-        cmd.gradient = gradient;
-        cmd.useGradient = true;
-        // renderer.executeCommand(cmd);
+        renderer.drawMultiGradient(bounds_, gradient);
     } else {
         auto color = getCurrentBackgroundColor();
         if (color.a > 0) {
@@ -189,15 +185,15 @@ void Widget::renderChildren(RenderEngine& renderer) {
 }
 
 Vec2 Widget::measure(float availableWidth, float availableHeight) {
-    float width = constraints_.preferredWidth >= 0 ? 
+    float width = constraints_.preferredWidth >= 0 ?
                   constraints_.preferredWidth : availableWidth;
-    float height = constraints_.preferredHeight >= 0 ? 
+    float height = constraints_.preferredHeight >= 0 ?
                    constraints_.preferredHeight : availableHeight;
 
-    width = std::clamp(width, constraints_.minWidth, 
-                       std::min(constraints_.maxWidth, availableWidth));
-    height = std::clamp(height, constraints_.minHeight, 
-                        std::min(constraints_.maxHeight, availableHeight));
+    float maxW = std::max(constraints_.minWidth, std::min(constraints_.maxWidth, availableWidth));
+    float maxH = std::max(constraints_.minHeight, std::min(constraints_.maxHeight, availableHeight));
+    width = std::clamp(width, constraints_.minWidth, maxW);
+    height = std::clamp(height, constraints_.minHeight, maxH);
 
     return Vec2(width, height);
 }
@@ -230,22 +226,29 @@ void Widget::update(double deltaTime) {
 
 void Widget::updateAnimations(double deltaTime) {
     for (auto it = animations_.begin(); it != animations_.end();) {
-        it->elapsed += deltaTime;
-        float t = std::min(it->elapsed / it->duration, 1.0f);
-        
+        it->elapsed += static_cast<float>(deltaTime);
+        float t = (it->duration > 0.0f) ? std::min(it->elapsed / it->duration, 1.0f) : 1.0f;
+
         if (it->easingFunction) {
             t = it->easingFunction(t);
         }
-        
+
         float value = it->startValue + (it->endValue - it->startValue) * t;
-        // Apply animation value to property
-        
-        if (t >= 1.0f) {
+        if (it->property == "opacity") {
+            style_.opacity = std::clamp(value, 0.0f, 1.0f);
+            markDirty();
+        } else if (it->property == "x") {
+            setPosition(value, bounds_.y);
+        } else if (it->property == "y") {
+            setPosition(bounds_.x, value);
+        }
+
+        if (it->duration <= 0.0f || it->elapsed >= it->duration) {
             if (it->onComplete) {
                 it->onComplete();
             }
-            if (it->loop) {
-                it->elapsed = 0;
+            if (it->loop && it->duration > 0.0f) {
+                it->elapsed = 0.0f;
                 if (it->pingPong) {
                     std::swap(it->startValue, it->endValue);
                 }
@@ -361,14 +364,17 @@ bool Widget::onFocusLost() {
 }
 
 bool Widget::onTouchStart(const Core::TouchEvent& event) {
+    if (event.touches.empty()) return false;
     return onMouseDown(Core::MouseButtonPressEvent(0, event.touches[0].x, event.touches[0].y));
 }
 
 bool Widget::onTouchMove(const Core::TouchEvent& event) {
+    if (event.touches.empty()) return false;
     return onMouseMove(Core::MouseMoveEvent(event.touches[0].x, event.touches[0].y));
 }
 
 bool Widget::onTouchEnd(const Core::TouchEvent& event) {
+    if (event.touches.empty()) return false;
     return onMouseUp(Core::MouseButtonReleaseEvent(0, event.touches[0].x, event.touches[0].y));
 }
 
@@ -478,9 +484,11 @@ Vec2 Container::measure(float availableWidth, float availableHeight) {
         }
     }
 
-    // Apply constraints
-    width = std::clamp(width, constraints_.minWidth, constraints_.maxWidth);
-    height = std::clamp(height, constraints_.minHeight, constraints_.maxHeight);
+    // Apply constraints safely
+    float maxW = std::max(constraints_.minWidth, constraints_.maxWidth);
+    float maxH = std::max(constraints_.minHeight, constraints_.maxHeight);
+    width = std::clamp(width, constraints_.minWidth, maxW);
+    height = std::clamp(height, constraints_.minHeight, maxH);
 
     return Vec2(width, height);
 }

@@ -60,10 +60,11 @@ Modifier operator&(Modifier a, Modifier b);
 struct Keybinding {
     std::string id;
     std::string command;
-    KeyCode key;
+    KeyCode key = KeyCode::Unknown;
     Modifier modifiers = Modifier::None;
     std::string when;  // Context condition
     std::string platform;  // Platform-specific (optional)
+    std::string keyString; // Optional textual shortcut (e.g. "Ctrl+S")
 
     std::string toString() const;
     static Keybinding fromString(const std::string& str);

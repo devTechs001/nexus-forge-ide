@@ -226,9 +226,11 @@ public:
     virtual void shutdown() = 0;
     virtual void beginFrame() = 0;
     virtual void endFrame() = 0;
+    virtual void present() {}
     virtual void setViewport(int x, int y, int width, int height) = 0;
     virtual void clear(const Color& color) = 0;
     virtual void draw(const DrawCommand& cmd) = 0;
+    virtual void executeDrawCommand(const DrawCommand& cmd) { draw(cmd); }
 };
 
 // Forward declarations - implementations in separate files

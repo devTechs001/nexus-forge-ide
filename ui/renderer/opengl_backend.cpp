@@ -2,10 +2,14 @@
 // OpenGL Backend Implementation
 
 #include "opengl_backend.hpp"
+
+#ifdef NEXUS_ENABLE_OPENGL
+
 #include <iostream>
 #include <cstring>
 #include <sstream>
 #include <cmath>
+#include <cstddef>
 
 namespace NexusForge::UI {
 
@@ -161,18 +165,23 @@ bool OpenGLBackend::createShaderProgram() {
         }
     )";
 
-    shaderProgram_ = compileShader(GL_VERTEX_SHADER, vertexSource);
-    if (!shaderProgram_) return false;
+    GLuint vert = compileShader(GL_VERTEX_SHADER, vertexSource);
+    if (!vert) return false;
     GLuint frag = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
-    if (!frag) return false;
+    if (!frag) {
+        glDeleteShader(vert);
+        return false;
+    }
 
     GLuint program = glCreateProgram();
-    glAttachShader(program, shaderProgram_);
+    glAttachShader(program, vert);
     glAttachShader(program, frag);
     glLinkProgram(program);
 
-    GLint success;
+    GLint success = 0;
     glGetProgramiv(program, GL_LINK_STATUS, &success);
+    glDeleteShader(vert);
+    glDeleteShader(frag);
     if (!success) {
         char infoLog[512];
         glGetProgramInfoLog(program, 512, nullptr, infoLog);
@@ -181,8 +190,6 @@ bool OpenGLBackend::createShaderProgram() {
         return false;
     }
 
-    glDeleteShader(shaderProgram_);
-    glDeleteShader(frag);
     shaderProgram_ = program;
     return true;
 }
@@ -231,7 +238,20 @@ void OpenGLBackend::flush() {
     glUseProgram(shaderProgram_);
 
     GLint projLoc = glGetUniformLocation(shaderProgram_, "uProjection");
-    glUniformMatrix4fv(projLoc, 1, GL_FALSE, projection_.m);
+    if (projLoc >= 0) glUniformMatrix4fv(projLoc, 1, GL_FALSE, projection_.m);
+
+    Mat4 identity = Mat4::identity();
+    GLint transformLoc = glGetUniformLocation(shaderProgram_, "uTransform");
+    if (transformLoc >= 0) glUniformMatrix4fv(transformLoc, 1, GL_FALSE, identity.m);
+
+    GLint colorLoc = glGetUniformLocation(shaderProgram_, "uUniformColor");
+    if (colorLoc >= 0) glUniform4f(colorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    GLint useTexLoc = glGetUniformLocation(shaderProgram_, "uUseTexture");
+    if (useTexLoc >= 0) glUniform1i(useTexLoc, 0);
+
+    GLint radiusLoc = glGetUniformLocation(shaderProgram_, "uCornerRadius");
+    if (radiusLoc >= 0) glUniform1f(radiusLoc, 0.0f);
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     glBufferData(GL_ARRAY_BUFFER, vertices_.size() * sizeof(Vertex), vertices_.data(), GL_STREAM_DRAW);
@@ -245,7 +265,6 @@ void OpenGLBackend::flush() {
 }
 
 void OpenGLBackend::renderRectCmd(const DrawCommand& cmd) {
-    size_t idx = vertices_.size();
     float x1 = cmd.rect.x, y1 = cmd.rect.y;
     float x2 = cmd.rect.x + cmd.rect.width, y2 = cmd.rect.y + cmd.rect.height;
 
@@ -270,25 +289,28 @@ void OpenGLBackend::renderCircleCmd(const DrawCommand& cmd) {
     float cy = cmd.rect.y + cmd.rect.height / 2;
     float radius = std::min(cmd.rect.width, cmd.rect.height) / 2;
 
-    size_t center = vertices_.size();
     Vertex cv;
     cv.position = {cx, cy};
     cv.texCoord = {0.5f, 0.5f};
     cv.color = {cmd.color.r, cmd.color.g, cmd.color.b, cmd.color.a};
-    vertices_.push_back(cv);
 
-    for (int i = 0; i <= segments; ++i) {
-        float angle = (i / (float)segments) * 2.0f * 3.14159265f;
-        Vertex v;
-        v.position = {cx + cosf(angle) * radius, cy + sinf(angle) * radius};
-        v.texCoord = {0.5f + 0.5f * cosf(angle), 0.5f + 0.5f * sinf(angle)};
-        v.color = cv.color;
-        vertices_.push_back(v);
-        if (i > 0) {
-            indices_.push_back((uint32_t)center);
-            indices_.push_back((uint32_t)(center + i));
-            indices_.push_back((uint32_t)(center + i + 1));
-        }
+    for (int i = 0; i < segments; ++i) {
+        float angle0 = (i / static_cast<float>(segments)) * 2.0f * 3.14159265f;
+        float angle1 = ((i + 1) / static_cast<float>(segments)) * 2.0f * 3.14159265f;
+
+        Vertex v0;
+        v0.position = {cx + std::cos(angle0) * radius, cy + std::sin(angle0) * radius};
+        v0.texCoord = {0.5f + 0.5f * std::cos(angle0), 0.5f + 0.5f * std::sin(angle0)};
+        v0.color = cv.color;
+
+        Vertex v1;
+        v1.position = {cx + std::cos(angle1) * radius, cy + std::sin(angle1) * radius};
+        v1.texCoord = {0.5f + 0.5f * std::cos(angle1), 0.5f + 0.5f * std::sin(angle1)};
+        v1.color = cv.color;
+
+        vertices_.push_back(cv);
+        vertices_.push_back(v0);
+        vertices_.push_back(v1);
     }
 }
 
@@ -341,3 +363,5 @@ void OpenGLBackend::updateProjection() {
 }
 
 } // namespace NexusForge::UI
+
+#endif // NEXUS_ENABLE_OPENGL

@@ -4,6 +4,7 @@
 #include "syntax_highlighter.hpp"
 #include "../buffer/text_buffer.hpp"
 #include <algorithm>
+#include <cctype>
 #include <regex>
 
 namespace NexusForge::Editor {
@@ -65,15 +66,16 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
     // In production, use Tree-sitter or similar
     
     size_t pos = 0;
-    
+    auto uch = [](char c) { return static_cast<unsigned char>(c); };
+
     while (pos < line.length()) {
         // Skip whitespace
-        if (std::isspace(line[pos])) {
+        if (std::isspace(uch(line[pos]))) {
             size_t start = pos;
-            while (pos < line.length() && std::isspace(line[pos])) {
+            while (pos < line.length() && std::isspace(uch(line[pos]))) {
                 pos++;
             }
-            
+
             Token token;
             token.type = TokenType::Whitespace;
             token.start = start;
@@ -82,28 +84,28 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
             tokens.push_back(token);
             continue;
         }
-        
+
         // Check for comments
         if (pos + 1 < line.length()) {
             std::string twoChars = line.substr(pos, 2);
-            
+
             if (twoChars == "//" || twoChars == "/*" || twoChars == "#!") {
                 size_t start = pos;
-                
+
                 if (twoChars == "//") {
                     pos = line.length();  // Rest of line
                 } else if (twoChars == "/*") {
                     // Simple single-line block comment handling
                     pos += 2;
-                    while (pos + 1 < line.length() && 
+                    while (pos + 1 < line.length() &&
                            line.substr(pos, 2) != "*/") {
                         pos++;
                     }
-                    pos += 2;
+                    pos = (pos + 1 < line.length()) ? (pos + 2) : line.length();
                 } else {
                     pos = line.length();
                 }
-                
+
                 Token token;
                 token.type = TokenType::Comment;
                 token.start = start;
@@ -113,13 +115,13 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
                 continue;
             }
         }
-        
+
         // Check for strings
         if (line[pos] == '"' || line[pos] == '\'' || line[pos] == '`') {
             char quote = line[pos];
             size_t start = pos;
             pos++;
-            
+
             while (pos < line.length() && line[pos] != quote) {
                 if (line[pos] == '\\' && pos + 1 < line.length()) {
                     pos += 2;  // Skip escaped character
@@ -127,8 +129,10 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
                     pos++;
                 }
             }
-            pos++;  // Skip closing quote
-            
+            if (pos < line.length()) {
+                pos++;  // Skip closing quote if present
+            }
+
             Token token;
             token.type = TokenType::String;
             token.start = start;
@@ -137,17 +141,17 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
             tokens.push_back(token);
             continue;
         }
-        
+
         // Check for numbers
-        if (std::isdigit(line[pos]) || 
-            (line[pos] == '.' && pos + 1 < line.length() && std::isdigit(line[pos + 1]))) {
+        if (std::isdigit(uch(line[pos])) ||
+            (line[pos] == '.' && pos + 1 < line.length() && std::isdigit(uch(line[pos + 1])))) {
             size_t start = pos;
-            
+
             // Handle hex, binary, octal
             if (line[pos] == '0' && pos + 1 < line.length()) {
                 if (line[pos + 1] == 'x' || line[pos + 1] == 'X') {
                     pos += 2;
-                    while (pos < line.length() && std::isxdigit(line[pos])) {
+                    while (pos < line.length() && std::isxdigit(uch(line[pos]))) {
                         pos++;
                     }
                 } else if (line[pos + 1] == 'b' || line[pos + 1] == 'B') {
@@ -156,27 +160,27 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
                         pos++;
                     }
                 } else {
-                    while (pos < line.length() && std::isdigit(line[pos])) {
+                    while (pos < line.length() && std::isdigit(uch(line[pos]))) {
                         pos++;
                     }
                 }
             } else {
-                while (pos < line.length() && 
-                       (std::isdigit(line[pos]) || line[pos] == '.' ||
+                while (pos < line.length() &&
+                       (std::isdigit(uch(line[pos])) || line[pos] == '.' ||
                         line[pos] == 'e' || line[pos] == 'E' ||
                         line[pos] == '+' || line[pos] == '-')) {
                     pos++;
                 }
             }
-            
+
             // Handle suffixes (f, l, u, etc.)
-            while (pos < line.length() && 
+            while (pos < line.length() &&
                    (line[pos] == 'f' || line[pos] == 'F' ||
                     line[pos] == 'l' || line[pos] == 'L' ||
                     line[pos] == 'u' || line[pos] == 'U')) {
                 pos++;
             }
-            
+
             Token token;
             token.type = TokenType::Number;
             token.start = start;
@@ -185,19 +189,19 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
             tokens.push_back(token);
             continue;
         }
-        
+
         // Check for identifiers/keywords
-        if (std::isalpha(line[pos]) || line[pos] == '_') {
+        if (std::isalpha(uch(line[pos])) || line[pos] == '_') {
             size_t start = pos;
-            
-            while (pos < line.length() && 
-                   (std::isalnum(line[pos]) || line[pos] == '_')) {
+
+            while (pos < line.length() &&
+                   (std::isalnum(uch(line[pos])) || line[pos] == '_')) {
                 pos++;
             }
-            
+
             std::string identifier = line.substr(start, pos - start);
             TokenType type = classifyIdentifier(identifier);
-            
+
             Token token;
             token.type = type;
             token.start = start;
@@ -207,12 +211,12 @@ std::vector<SyntaxHighlighter::Token> SyntaxHighlighter::tokenizeLine(
             tokens.push_back(token);
             continue;
         }
-        
+
         // Operators and punctuation
         size_t start = pos;
-        while (pos < line.length() && 
-               !std::isalnum(line[pos]) && 
-               !std::isspace(line[pos]) &&
+        while (pos < line.length() &&
+               !std::isalnum(uch(line[pos])) &&
+               !std::isspace(uch(line[pos])) &&
                line[pos] != '"' && line[pos] != '\'' && line[pos] != '`') {
             pos++;
         }
@@ -286,7 +290,7 @@ SyntaxHighlighter::TokenType SyntaxHighlighter::classifyIdentifier(
     }
     
     // Capitalized = likely a type
-    if (!identifier.empty() && std::isupper(identifier[0])) {
+    if (!identifier.empty() && std::isupper(static_cast<unsigned char>(identifier[0]))) {
         return TokenType::Type;
     }
     
@@ -337,6 +341,9 @@ void SyntaxHighlighter::loadGrammar(const std::string& languageId) {
 
 void SyntaxHighlighter::onTextChanged(size_t startLine, size_t startCol,
                                        size_t endLine, size_t endCol) {
+    (void)startCol;
+    (void)endCol;
+    if (!buffer_) return;
     // Re-highlight affected lines
     for (size_t line = startLine; line <= endLine && line < buffer_->getLineCount(); ++line) {
         highlightLine(line);

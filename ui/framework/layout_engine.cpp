@@ -35,7 +35,7 @@ Vec2 LayoutEngine::applyConstraints(const Vec2& size, const SizeConstraints& con
                                      float availableWidth, float availableHeight) {
     float width = size.x;
     float height = size.y;
-    
+
     // Apply preferred size
     if (constraints.preferredWidth >= 0) {
         width = constraints.preferredWidth;
@@ -43,30 +43,24 @@ Vec2 LayoutEngine::applyConstraints(const Vec2& size, const SizeConstraints& con
     if (constraints.preferredHeight >= 0) {
         height = constraints.preferredHeight;
     }
-    
-    // Apply min/max constraints
-    width = std::clamp(width, constraints.minWidth, 
-                       std::min(constraints.maxWidth, availableWidth));
-    height = std::clamp(height, constraints.minHeight, 
-                        std::min(constraints.maxHeight, availableHeight));
-    
+
+    // Apply min/max constraints safely (guard against min > max)
+    float maxW = std::max(constraints.minWidth, std::min(constraints.maxWidth, availableWidth));
+    float maxH = std::max(constraints.minHeight, std::min(constraints.maxHeight, availableHeight));
+    width = std::clamp(width, constraints.minWidth, maxW);
+    height = std::clamp(height, constraints.minHeight, maxH);
+
     return Vec2(width, height);
 }
 
 void LayoutEngine::layoutFlex(Container* container, const Rect& bounds) {
     if (!container) return;
-    
-    float x = bounds.x + container->getStyle().padding.left;
-    float y = bounds.y + container->getStyle().padding.top;
-    float availableWidth = bounds.width - container->getStyle().padding.horizontal();
-    float availableHeight = bounds.height - container->getStyle().padding.vertical();
-    
+
     auto direction = container->getLayoutDirection();
-    float spacing = container->getSpacing();
-    
-    if (direction == LayoutDirection::LeftToRight || 
+
+    if (direction == LayoutDirection::LeftToRight ||
         direction == LayoutDirection::RightToLeft) {
-        layoutChildrenHorizontal(container, bounds, 
+        layoutChildrenHorizontal(container, bounds,
                                  direction == LayoutDirection::LeftToRight);
     } else {
         layoutChildrenVertical(container, bounds,
@@ -138,10 +132,11 @@ void LayoutEngine::layoutChildrenHorizontal(Container* container, const Rect& bo
             childBounds = Rect(x, y, childSize.x, childHeight);
             x += childSize.x + spacing;
         } else {
-            x -= childSize.x + spacing;
+            x -= childSize.x;
             childBounds = Rect(x, y, childSize.x, childHeight);
+            x -= spacing;
         }
-        
+
         child->arrange(childBounds);
     }
 }
@@ -210,10 +205,11 @@ void LayoutEngine::layoutChildrenVertical(Container* container, const Rect& boun
             childBounds = Rect(x, y, childWidth, childSize.y);
             y += childSize.y + spacing;
         } else {
-            y -= childSize.y + spacing;
+            y -= childSize.y;
             childBounds = Rect(x, y, childWidth, childSize.y);
+            y -= spacing;
         }
-        
+
         child->arrange(childBounds);
     }
 }

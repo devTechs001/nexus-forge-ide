@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <mutex>
 #include <thread>
+#include <atomic>
+#include <condition_variable>
 #include <set>
 #include <ctime>
 
@@ -25,6 +27,7 @@ class FileSystemWatcher {
 public:
     using WatchCallback = std::function<void(const std::string&, FileChangeType)>;
     using DirectoryWatchCallback = std::function<void(const std::string&, FileChangeType)>;
+    using Callback = std::function<void(const std::string& path, int changeType)>;
 
     FileSystemWatcher();
     ~FileSystemWatcher();
@@ -32,9 +35,11 @@ public:
     bool initialize();
     void shutdown();
 
+    void addWatch(const std::string& path);
     void addWatch(const std::string& path, WatchCallback callback);
     void addDirectoryWatch(const std::string& path, DirectoryWatchCallback callback, bool recursive = true);
     void removeWatch(const std::string& path);
+    void setCallback(Callback callback);
 
     void pause();
     void resume();
@@ -61,11 +66,13 @@ private:
     std::unordered_map<std::string, FileState> watchedPaths_;
     std::unordered_map<std::string, std::vector<WatchCallback>> fileCallbacks_;
     std::vector<DirectoryWatch> directoryWatches_;
+    Callback globalCallback_;
 
     std::thread watchThread_;
-    std::mutex mutex_;
-    bool running_ = false;
-    bool paused_ = false;
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    std::atomic<bool> running_{false};
+    std::atomic<bool> paused_{false};
 
     void watchLoop();
     void checkForChanges();

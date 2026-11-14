@@ -9,15 +9,18 @@ namespace NexusForge::UI {
 float Easing::easeOutBounce(float t) {
     const float n1 = 7.5625f;
     const float d1 = 2.75f;
-    
-    if (t < 1 / d1) {
+
+    if (t < 1.0f / d1) {
         return n1 * t * t;
-    } else if (t < 2 / d1) {
-        return n1 * (t -= 1.5f / d1) * t + 0.75f;
-    } else if (t < 2.5 / d1) {
-        return n1 * (t -= 2.25f / d1) * t + 0.9375f;
+    } else if (t < 2.0f / d1) {
+        t -= 1.5f / d1;
+        return n1 * t * t + 0.75f;
+    } else if (t < 2.5f / d1) {
+        t -= 2.25f / d1;
+        return n1 * t * t + 0.9375f;
     } else {
-        return n1 * (t -= 2.625f / d1) * t + 0.984375f;
+        t -= 2.625f / d1;
+        return n1 * t * t + 0.984375f;
     }
 }
 
@@ -63,6 +66,7 @@ void Animation::start() {
     running_ = true;
     paused_ = false;
     complete_ = false;
+    pingPongForward_ = true;
     elapsed_ = 0;
     progress_ = 0;
     currentValue_ = startValue_;
@@ -82,8 +86,9 @@ void Animation::resume() {
 }
 
 void Animation::seek(float time) {
-    elapsed_ = std::clamp(time, 0.0f, duration_);
-    progress_ = duration_ > 0 ? elapsed_ / duration_ : 1.0f;
+    float maxTime = std::max(0.0f, duration_);
+    elapsed_ = std::clamp(time, 0.0f, maxTime);
+    progress_ = duration_ > 0.0f ? elapsed_ / duration_ : 1.0f;
     currentValue_ = interpolate(progress_);
     if (onUpdate_) {
         onUpdate_(currentValue_);
@@ -91,25 +96,33 @@ void Animation::seek(float time) {
 }
 
 void Animation::update(float deltaTime) {
-    if (!running_ || paused_) return;
-    
+    if (!running_ || paused_ || deltaTime <= 0.0f) return;
+
     // Handle delay
-    if (delay_ > 0) {
+    if (delay_ > 0.0f) {
         delay_ -= deltaTime;
-        if (delay_ < 0) {
+        if (delay_ < 0.0f) {
             deltaTime = -delay_;
-            delay_ = 0;
+            delay_ = 0.0f;
         } else {
             return;
         }
     }
-    
+
     elapsed_ += deltaTime;
-    
-    if (elapsed_ >= duration_) {
+
+    if (duration_ <= 0.0f) {
+        elapsed_ = 0.0f;
+        progress_ = 1.0f;
+        if (!loop_) {
+            complete_ = true;
+            running_ = false;
+        }
+    } else if (elapsed_ >= duration_) {
         if (loop_) {
-            elapsed_ -= duration_;
-            if (pingPong_) {
+            int cycles = static_cast<int>(elapsed_ / duration_);
+            elapsed_ = std::fmod(elapsed_, duration_);
+            if (pingPong_ && (cycles % 2 == 1)) {
                 pingPongForward_ = !pingPongForward_;
             }
         } else {
@@ -118,14 +131,14 @@ void Animation::update(float deltaTime) {
             running_ = false;
         }
     }
-    
-    progress_ = duration_ > 0 ? elapsed_ / duration_ : 1.0f;
+
+    progress_ = duration_ > 0.0f ? std::clamp(elapsed_ / duration_, 0.0f, 1.0f) : 1.0f;
     currentValue_ = interpolate(progress_);
-    
+
     if (onUpdate_) {
         onUpdate_(currentValue_);
     }
-    
+
     if (complete_ && onComplete_) {
         onComplete_();
     }
@@ -156,7 +169,7 @@ std::shared_ptr<Animation> AnimationManager::createAnimation() {
 }
 
 std::shared_ptr<Animation> AnimationManager::fadeIn(float duration) {
-    auto anim = std::make_shared<Animation>();
+    auto anim = createAnimation();
     anim->setDuration(duration);
     anim->setEasingPreset("easeOutQuad");
     anim->from(0.0f);
@@ -165,7 +178,7 @@ std::shared_ptr<Animation> AnimationManager::fadeIn(float duration) {
 }
 
 std::shared_ptr<Animation> AnimationManager::fadeOut(float duration) {
-    auto anim = std::make_shared<Animation>();
+    auto anim = createAnimation();
     anim->setDuration(duration);
     anim->setEasingPreset("easeInQuad");
     anim->from(1.0f);
@@ -174,7 +187,7 @@ std::shared_ptr<Animation> AnimationManager::fadeOut(float duration) {
 }
 
 std::shared_ptr<Animation> AnimationManager::slideIn(float duration) {
-    auto anim = std::make_shared<Animation>();
+    auto anim = createAnimation();
     anim->setDuration(duration);
     anim->setEasingPreset("easeOutCubic");
     anim->from(-100.0f);
@@ -183,7 +196,7 @@ std::shared_ptr<Animation> AnimationManager::slideIn(float duration) {
 }
 
 std::shared_ptr<Animation> AnimationManager::slideOut(float duration) {
-    auto anim = std::make_shared<Animation>();
+    auto anim = createAnimation();
     anim->setDuration(duration);
     anim->setEasingPreset("easeInCubic");
     anim->from(0.0f);
@@ -192,7 +205,7 @@ std::shared_ptr<Animation> AnimationManager::slideOut(float duration) {
 }
 
 std::shared_ptr<Animation> AnimationManager::scaleIn(float duration) {
-    auto anim = std::make_shared<Animation>();
+    auto anim = createAnimation();
     anim->setDuration(duration);
     anim->setEasingPreset("easeOutBack");
     anim->from(0.0f);
@@ -201,7 +214,7 @@ std::shared_ptr<Animation> AnimationManager::scaleIn(float duration) {
 }
 
 std::shared_ptr<Animation> AnimationManager::scaleOut(float duration) {
-    auto anim = std::make_shared<Animation>();
+    auto anim = createAnimation();
     anim->setDuration(duration);
     anim->setEasingPreset("easeInBack");
     anim->from(1.0f);
@@ -210,14 +223,17 @@ std::shared_ptr<Animation> AnimationManager::scaleOut(float duration) {
 }
 
 void AnimationManager::update(float deltaTime) {
-    for (auto it = animations_.begin(); it != animations_.end();) {
-        if (*it && (*it)->isRunning()) {
-            (*it)->update(deltaTime);
-            ++it;
-        } else {
-            it = animations_.erase(it);
+    // Copy list so callbacks adding/stopping animations don't invalidate iterators
+    auto snapshot = animations_;
+    for (auto& anim : snapshot) {
+        if (anim && anim->isRunning()) {
+            anim->update(deltaTime);
         }
     }
+    animations_.erase(
+        std::remove_if(animations_.begin(), animations_.end(),
+            [](const std::shared_ptr<Animation>& a) { return !a || a->isComplete(); }),
+        animations_.end());
 }
 
 void AnimationManager::stopAll() {

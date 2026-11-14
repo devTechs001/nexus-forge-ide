@@ -184,8 +184,10 @@ void TouchHandler::enablePan(bool enabled) {
 }
 
 void TouchHandler::setZoomLimits(float minZoom, float maxZoom) {
+    if (minZoom > maxZoom) std::swap(minZoom, maxZoom);
     minZoom_ = minZoom;
     maxZoom_ = maxZoom;
+    currentZoom_ = std::clamp(currentZoom_, minZoom_, maxZoom_);
 }
 
 float TouchHandler::getCurrentZoom() const {

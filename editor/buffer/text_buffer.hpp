@@ -93,6 +93,10 @@ private:
     void notifyChange(const TextChange& change);
     void pushUndo(UndoAction::Type type, size_t line, size_t col, const std::string& text);
     void ensureLineExists(size_t lineNum);
+    std::string getRangeUnlocked(size_t startLine, size_t startCol, size_t endLine, size_t endCol) const;
+    void insertUnlocked(size_t line, size_t col, const std::string& text);
+    std::string removeUnlocked(size_t line, size_t col, size_t length);
+    void removeTextAtUnlocked(size_t line, size_t col, const std::string& text);
 };
 
 } // namespace NexusForge::Editor

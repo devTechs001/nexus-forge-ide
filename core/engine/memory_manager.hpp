@@ -41,6 +41,7 @@ struct MemoryBlockHeader {
     uint32_t checksum;
     const char* file;
     int line;
+    void* rawPtr;
     MemoryBlockHeader* next;
     MemoryBlockHeader* prev;
 };
@@ -48,21 +49,78 @@ struct MemoryBlockHeader {
 // Pool allocator for fixed-size allocations
 template<size_t BlockSize, size_t BlockCount>
 class PoolAllocator {
+    static_assert(BlockSize >= sizeof(void*), "PoolAllocator BlockSize must hold a pointer");
+    static_assert(BlockCount > 0, "PoolAllocator BlockCount must be > 0");
 public:
-    PoolAllocator();
-    ~PoolAllocator();
+    PoolAllocator() : freeCount_(BlockCount) {
+        freeList_ = memory_;
+        uint8_t* current = memory_;
+        for (size_t i = 0; i < BlockCount - 1; ++i) {
+            uint8_t* next = current + BlockSize;
+            *reinterpret_cast<void**>(current) = next;
+            current = next;
+        }
+        *reinterpret_cast<void**>(current) = nullptr;
+    }
 
-    void* allocate();
-    void deallocate(void* ptr);
+    ~PoolAllocator() = default;
+
+    void* allocate() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!freeList_) return nullptr;
+        void* block = freeList_;
+        freeList_ = *reinterpret_cast<void**>(freeList_);
+        freeCount_--;
+        return block;
+    }
+
+    void deallocate(void* ptr) {
+        if (!ptr || !owns(ptr)) return;
+        std::lock_guard<std::mutex> lock(mutex_);
+        size_t idx = static_cast<size_t>(reinterpret_cast<uint8_t*>(ptr) - memory_) / BlockSize;
+        blockSizes_[idx] = 0;
+        blockTags_[idx] = MemoryTag::Unknown;
+        *reinterpret_cast<void**>(ptr) = freeList_;
+        freeList_ = ptr;
+        freeCount_++;
+    }
+
+    bool owns(const void* ptr) const {
+        if (!ptr) return false;
+        const auto addr = reinterpret_cast<uintptr_t>(ptr);
+        const auto start = reinterpret_cast<uintptr_t>(memory_);
+        const auto end = start + sizeof(memory_);
+        return addr >= start && addr < end && ((addr - start) % BlockSize == 0);
+    }
+
+    void setBlockMetadata(void* ptr, size_t size, MemoryTag tag) {
+        if (!owns(ptr)) return;
+        std::lock_guard<std::mutex> lock(mutex_);
+        size_t idx = static_cast<size_t>(reinterpret_cast<uint8_t*>(ptr) - memory_) / BlockSize;
+        blockSizes_[idx] = size;
+        blockTags_[idx] = tag;
+    }
+
+    bool getBlockMetadata(const void* ptr, size_t& size, MemoryTag& tag) const {
+        if (!owns(ptr)) return false;
+        std::lock_guard<std::mutex> lock(mutex_);
+        size_t idx = static_cast<size_t>(reinterpret_cast<const uint8_t*>(ptr) - memory_) / BlockSize;
+        size = blockSizes_[idx];
+        tag = blockTags_[idx];
+        return true;
+    }
 
     size_t getFreeCount() const { return freeCount_.load(); }
     size_t getCapacity() const { return BlockCount; }
+    static constexpr size_t getBlockSize() { return BlockSize; }
 
 private:
     alignas(64) uint8_t memory_[BlockSize * BlockCount];
+    size_t blockSizes_[BlockCount]{};
+    MemoryTag blockTags_[BlockCount]{};
     void* freeList_;
     std::atomic<size_t> freeCount_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
 };
 
 // Arena allocator for temporary allocations
@@ -78,6 +136,7 @@ public:
     size_t getCapacity() const { return capacity_; }
 
 private:
+    void* rawMemory_;
     uint8_t* memory_;
     size_t capacity_;
     size_t used_;
@@ -158,6 +217,8 @@ private:
 
     void trackAllocation(MemoryBlockHeader* header);
     void untrackAllocation(MemoryBlockHeader* header);
+    bool findPoolBlock(const void* ptr, size_t& blockSize, size_t& allocSize, MemoryTag& tag) const;
+    bool deallocateIfPool(void* ptr);
 };
 
 // Global memory functions
@@ -183,12 +244,20 @@ namespace GlobalMemory {
 
     template<typename T, typename... Args>
     T* create(MemoryTag tag, Args&&... args) {
-        return getManager()->create<T>(tag, std::forward<Args>(args)...);
+        if (auto* mgr = getManager()) {
+            return mgr->create<T>(tag, std::forward<Args>(args)...);
+        }
+        return new T(std::forward<Args>(args)...);
     }
 
     template<typename T>
     void destroy(T* ptr) {
-        getManager()->destroy(ptr);
+        if (!ptr) return;
+        if (auto* mgr = getManager()) {
+            mgr->destroy(ptr);
+        } else {
+            delete ptr;
+        }
     }
 }
 

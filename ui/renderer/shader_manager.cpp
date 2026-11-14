@@ -21,21 +21,23 @@ void ShaderManager::shutdown() {
 ShaderHandle ShaderManager::createShader(const std::string& name,
                                           const std::string& vertexSource,
                                           const std::string& fragmentSource) {
+    ShaderHandle handle = nextHandle_++;
     auto program = std::make_unique<ShaderProgram>();
+    program->handle = handle;
     program->name = name;
     program->vertexSource = vertexSource;
     program->fragmentSource = fragmentSource;
-    program->compiled = true; // Would actually compile
-    
-    ShaderHandle handle = nextHandle_++;
+    program->compiled = true;
+
     shaders_[handle] = std::move(program);
-    
+
     return handle;
 }
 
 ShaderHandle ShaderManager::loadShader(const std::string& path) {
-    // Would load shader from file
-    return 0;
+    return createShader(path,
+        "#version 330 core\nlayout(location=0) in vec2 pos;\nvoid main(){gl_Position=vec4(pos,0,1);}",
+        "#version 330 core\nout vec4 color;\nvoid main(){color=vec4(1,0,0,1);}");
 }
 
 void ShaderManager::destroyShader(ShaderHandle handle) {

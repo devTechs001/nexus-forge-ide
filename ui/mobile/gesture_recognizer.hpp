@@ -56,30 +56,30 @@ enum class SwipeDirection {
 
 // Gesture event data
 struct GestureData {
-    GestureType type;
-    GestureState state;
+    GestureType type = GestureType::Tap;
+    GestureState state = GestureState::Possible;
 
     // Position
-    float x, y;
-    float startX, startY;
+    float x = 0.0f, y = 0.0f;
+    float startX = 0.0f, startY = 0.0f;
 
     // Movement
-    float translationX, translationY;
-    float velocityX, velocityY;
+    float translationX = 0.0f, translationY = 0.0f;
+    float velocityX = 0.0f, velocityY = 0.0f;
 
     // Pinch/Rotate
-    float scale;
-    float rotation;
-    float velocity;  // Scale or rotation velocity
+    float scale = 1.0f;
+    float rotation = 0.0f;
+    float velocity = 0.0f;  // Scale or rotation velocity
 
     // Tap
-    int tapCount;
+    int tapCount = 0;
 
     // Swipe
-    SwipeDirection direction;
+    SwipeDirection direction = SwipeDirection::None;
 
     // Touch info
-    int touchCount;
+    int touchCount = 0;
     std::vector<TouchState> touches;
 };
 
@@ -144,8 +144,9 @@ private:
     float maxTimeBetweenTaps_ = 0.3f;
 
     int currentTapCount_ = 0;
-    std::chrono::steady_clock::time_point lastTapTime_;
-    float initialX_, initialY_;
+    std::chrono::steady_clock::time_point touchStartTime_{};
+    std::chrono::steady_clock::time_point lastTapTime_{};
+    float initialX_ = 0.0f, initialY_ = 0.0f;
 };
 
 // Long press recognizer
@@ -198,11 +199,11 @@ private:
     int minTouches_, maxTouches_;
     float minDistance_ = 10.0f;
 
-    float startX_, startY_;
+    float startX_ = 0.0f, startY_ = 0.0f;
     float translationX_ = 0, translationY_ = 0;
     float velocityX_ = 0, velocityY_ = 0;
-    float lastX_, lastY_;
-    std::chrono::steady_clock::time_point lastTime_;
+    float lastX_ = 0.0f, lastY_ = 0.0f;
+    std::chrono::steady_clock::time_point lastTime_{};
 };
 
 // Swipe gesture recognizer

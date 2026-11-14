@@ -101,39 +101,38 @@ void PieceTable::insert(size_t pos, const std::string& text) {
             pieces_.insert(pieces_.begin() + pieceIndex + 1, newPiece);
         } else {
             // Split the piece
+            Piece orig = currentPiece;
             Piece newPiece;
             newPiece.buffer = BufferType::Add;
             newPiece.start = addStart;
             newPiece.length = text.length();
-            
+
             // Modify current piece to be the first part
             currentPiece.length = offsetInPiece;
-            
-            // Create piece for the second part
+
+            // Create piece for the second part using saved original length
             Piece secondPart;
-            secondPart.buffer = currentPiece.buffer;
-            secondPart.start = currentPiece.start + offsetInPiece;
-            secondPart.length = currentPiece.length - offsetInPiece + text.length() + 
-                               (pieces_[pieceIndex].buffer == BufferType::Add ? 0 : 0);
-            
-            // Actually, let's recalculate
-            secondPart.buffer = currentPiece.buffer;
-            secondPart.start = currentPiece.start + offsetInPiece;
-            secondPart.length = (pieces_[pieceIndex].length - offsetInPiece);
-            
+            secondPart.buffer = orig.buffer;
+            secondPart.start = orig.start + offsetInPiece;
+            secondPart.length = orig.length - offsetInPiece;
+
             pieces_.insert(pieces_.begin() + pieceIndex + 1, newPiece);
             pieces_.insert(pieces_.begin() + pieceIndex + 2, secondPart);
         }
     }
 }
 
-void PieceTable::remove(size_t start, size_t end) {
+void PieceTable::remove(size_t position, size_t length) {
+    size_t total = totalLength();
+    if (length == 0 || position >= total || pieces_.empty()) return;
+    size_t start = position;
+    size_t end = std::min(position + length, total);
     if (start >= end) return;
-    
+
     size_t currentPos = 0;
-    size_t startIndex = 0, endIndex = 0;
+    size_t startIndex = 0, endIndex = pieces_.size() - 1;
     size_t startOffset = 0, endOffset = 0;
-    
+
     // Find start piece
     for (size_t i = 0; i < pieces_.size(); ++i) {
         if (currentPos + pieces_[i].length > start) {
@@ -143,8 +142,9 @@ void PieceTable::remove(size_t start, size_t end) {
         }
         currentPos += pieces_[i].length;
     }
-    
-    // Find end piece
+
+    // Find end piece (restart from 0)
+    currentPos = 0;
     for (size_t i = 0; i < pieces_.size(); ++i) {
         if (currentPos + pieces_[i].length >= end) {
             endIndex = i;
@@ -153,58 +153,49 @@ void PieceTable::remove(size_t start, size_t end) {
         }
         currentPos += pieces_[i].length;
     }
-    
+
     if (startIndex == endIndex) {
         // Removal within single piece
         Piece& piece = pieces_[startIndex];
-        
+
         if (startOffset == 0 && endOffset >= piece.length) {
-            // Remove entire piece
             pieces_.erase(pieces_.begin() + startIndex);
         } else if (startOffset == 0) {
-            // Remove from start
             piece.start += endOffset;
             piece.length -= endOffset;
         } else if (endOffset >= piece.length) {
-            // Remove from end
             piece.length = startOffset;
         } else {
-            // Remove from middle - split piece
             Piece secondPart;
             secondPart.buffer = piece.buffer;
             secondPart.start = piece.start + endOffset;
             secondPart.length = piece.length - endOffset;
-            
+
             piece.length = startOffset;
             pieces_.insert(pieces_.begin() + startIndex + 1, secondPart);
         }
     } else {
-        // Removal spans multiple pieces
-        
+        // Removal spans multiple pieces — adjust end first so indices don't shift
+        if (endOffset < pieces_[endIndex].length) {
+            pieces_[endIndex].start += endOffset;
+            pieces_[endIndex].length -= endOffset;
+        } else {
+            pieces_[endIndex].length = 0;
+        }
+
+        // Remove pieces strictly between startIndex and endIndex
+        if (startIndex + 1 < endIndex) {
+            pieces_.erase(pieces_.begin() + startIndex + 1, pieces_.begin() + endIndex);
+        }
+
         // Adjust start piece
         if (startOffset > 0) {
             pieces_[startIndex].length = startOffset;
         } else {
-            pieces_.erase(pieces_.begin() + startIndex);
-            endIndex--;
-        }
-        
-        // Adjust end piece
-        if (endIndex < pieces_.size() && endOffset < pieces_[endIndex].length) {
-            pieces_[endIndex].start += endOffset;
-            pieces_[endIndex].length -= endOffset;
-        } else {
-            if (endIndex < pieces_.size()) {
-                pieces_.erase(pieces_.begin() + endIndex);
-            }
-        }
-        
-        // Remove pieces in between
-        if (startIndex + 1 < endIndex) {
-            pieces_.erase(pieces_.begin() + startIndex + 1, pieces_.begin() + endIndex);
+            pieces_[startIndex].length = 0;
         }
     }
-    
+
     // Remove empty pieces
     pieces_.erase(
         std::remove_if(pieces_.begin(), pieces_.end(),
@@ -313,6 +304,58 @@ std::string PieceTable::getLine(size_t lineNum) const {
 
 size_t PieceTable::getMemoryUsage() const {
     return sizeof(PieceTable) + original_.capacity() + added_.capacity();
+}
+
+void PieceTable::beginUndo() {
+    EditState state;
+    state.pieces = pieces_;
+    state.added = added_;
+    state.totalLength = totalLength();
+    state.totalLines = lineCount();
+    undoStack_.push_back(std::move(state));
+    redoStack_.clear();
+}
+
+void PieceTable::endUndo() {
+    // Snapshot boundary already recorded by beginUndo()
+}
+
+void PieceTable::undo() {
+    if (undoStack_.empty()) return;
+    EditState current;
+    current.pieces = pieces_;
+    current.added = added_;
+    current.totalLength = totalLength();
+    current.totalLines = lineCount();
+    redoStack_.push_back(std::move(current));
+
+    EditState prev = std::move(undoStack_.back());
+    undoStack_.pop_back();
+    pieces_ = std::move(prev.pieces);
+    added_ = std::move(prev.added);
+}
+
+void PieceTable::redo() {
+    if (redoStack_.empty()) return;
+    EditState current;
+    current.pieces = pieces_;
+    current.added = added_;
+    current.totalLength = totalLength();
+    current.totalLines = lineCount();
+    undoStack_.push_back(std::move(current));
+
+    EditState next = std::move(redoStack_.back());
+    redoStack_.pop_back();
+    pieces_ = std::move(next.pieces);
+    added_ = std::move(next.added);
+}
+
+bool PieceTable::canUndo() const {
+    return !undoStack_.empty();
+}
+
+bool PieceTable::canRedo() const {
+    return !redoStack_.empty();
 }
 
 } // namespace NexusForge::Editor

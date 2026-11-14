@@ -1,12 +1,42 @@
 // networking/live_share.hpp
 #pragma once
 
+#include "websocket_client.hpp"
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <functional>
 #include <memory>
+#include <chrono>
+#include <cstdint>
 
 namespace NexusForge::Networking {
+
+enum class TextChangeType {
+    Insert,
+    Delete,
+    Replace
+};
+
+struct TextChange {
+    TextChangeType type = TextChangeType::Insert;
+    size_t position = 0;
+    size_t length = 0;
+    std::string text;
+};
+
+struct ChatMessage {
+    std::string senderId;
+    std::string senderName;
+    std::string content;
+    std::chrono::steady_clock::time_point timestamp{};
+};
+
+struct ParticipantInvite {
+    std::string email;
+    std::string code;
+    std::chrono::steady_clock::time_point sentAt{};
+};
 
 // Collaboration session
 struct CollaborationSession {
@@ -27,8 +57,111 @@ struct Participant {
     std::string color;
     std::string avatar;
     bool isHost = false;
+    bool readOnly = false;
     size_t cursorPosition = 0;
     std::string currentFile;
+};
+
+// Live share controller
+class LiveShare {
+public:
+    struct SharedDocument {
+        std::string id;
+        std::string path;
+        std::string content;
+        int version = 0;
+    };
+
+    struct SharedTerminal {
+        std::string id;
+        std::string output;
+    };
+
+    struct Participant {
+        std::string id;
+        std::string name;
+        bool readOnly = false;
+        std::function<void(const SharedDocument&)> onDocumentShared;
+        std::function<void(const std::string&)> onDocumentUnshared;
+        std::function<void(const std::string&, const TextChange&, int)> onDocumentChange;
+        std::function<void(const ChatMessage&)> onChatMessage;
+        std::function<void(const std::string&)> onParticipantRemoved;
+        std::function<void()> onSessionEnded;
+        std::function<void(const SharedTerminal&)> onTerminalShared;
+        std::function<void(const std::string&, const std::string&)> onTerminalOutput;
+    };
+
+    LiveShare();
+    ~LiveShare();
+
+    bool hostSession(const std::string& workspacePath);
+    bool joinSession(const std::string& sessionId, const std::string& inviteCode = "");
+    void disconnect();
+
+    bool shareDocument(const std::string& documentId, const std::string& path);
+    void unshareDocument(const std::string& documentId);
+    void updateDocument(const std::string& documentId, const TextChange& change);
+    void requestDocument(const std::string& documentId);
+
+    bool inviteParticipant(const std::string& email);
+    bool kickParticipant(const std::string& participantId);
+    void setReadOnly(const std::string& participantId, bool readOnly);
+    void followParticipant(const std::string& participantId);
+    void stopFollowing();
+
+    void sendChatMessage(const std::string& message);
+    const std::vector<ChatMessage>& getChatHistory() const;
+    const std::unordered_map<std::string, Participant>& getParticipants() const;
+    const std::unordered_map<std::string, SharedDocument>& getSharedDocuments() const;
+
+    std::string getSessionId() const;
+    bool isConnected() const;
+    bool isHost() const;
+
+    // Terminal sharing
+    void shareTerminal(const std::string& terminalId);
+    void sendTerminalOutput(const std::string& terminalId, const std::string& output);
+    void sendTerminalInput(const std::string& terminalId, const std::string& input);
+
+    // Events
+    std::function<void(const std::string&)> onSessionStarted;
+    std::function<void(const std::string&)> onSessionJoined;
+    std::function<void()> onSessionEnded;
+    std::function<void(const std::string&, const std::string&)> onInviteSent;
+    std::function<void(const std::string&)> onFollowChanged;
+
+private:
+    bool connected_ = false;
+    bool isHost_ = false;
+    std::string workspacePath_;
+    std::string sessionId_;
+    std::string inviteCode_;
+    std::string following_;
+    std::string localParticipantId_;
+    std::string localParticipantName_;
+
+    std::unordered_map<std::string, Participant> participants_;
+    std::unordered_map<std::string, SharedDocument> sharedDocuments_;
+    std::unordered_map<std::string, SharedTerminal> sharedTerminals_;
+    std::vector<ParticipantInvite> invites_;
+    std::vector<ChatMessage> chatHistory_;
+
+    std::string generateSessionId() const;
+    std::string generateInviteCode() const;
+    std::string loadDocumentContent(const std::string& path);
+    void applyChange(std::string& content, const TextChange& change);
+    void broadcastDocumentShared(const SharedDocument& doc);
+    void broadcastDocumentUnshared(const std::string& documentId);
+    void broadcastDocumentChange(const std::string& documentId, const TextChange& change, int version);
+    void broadcastChatMessage(const ChatMessage& message);
+    void broadcastParticipantRemoved(const std::string& participantId);
+    void broadcastSessionEnd();
+    void sendDocumentContent(const SharedDocument& doc);
+    void sendDocumentRequest(const std::string& documentId);
+    void sendReadOnlyUpdate(const std::string& participantId, bool readOnly);
+    void broadcastTerminalShared(const SharedTerminal& terminal);
+    void broadcastTerminalOutput(const std::string& terminalId, const std::string& output);
+    void broadcastTerminalInput(const std::string& terminalId, const std::string& input);
 };
 
 // Live share session

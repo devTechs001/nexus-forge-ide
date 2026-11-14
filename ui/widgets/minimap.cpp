@@ -41,8 +41,9 @@ void Minimap::render(RenderEngine& renderer) {
     renderer.drawRect(bounds_, Color(0.1f, 0.1f, 0.18f, 1.0f));
     
     float lineY = bounds_.y + 2;
-    float maxLineHeight = (bounds_.height - 4) / totalLines_;
-    float actualLineHeight = std::min(lineHeight_, maxLineHeight);
+    float usableHeight = std::max(1.0f, bounds_.height - 4.0f);
+    float maxLineHeight = usableHeight / static_cast<float>(totalLines_);
+    float actualLineHeight = std::max(0.5f, std::min(lineHeight_, maxLineHeight));
     
     // Draw lines
     size_t startLine = firstVisibleLine_ > 5 ? firstVisibleLine_ - 5 : 0;
@@ -121,10 +122,14 @@ bool Minimap::onMouseUp(const Core::MouseButtonReleaseEvent& event) {
 }
 
 size_t Minimap::getLineAtY(float y) const {
-    float maxLineHeight = (bounds_.height - 4) / totalLines_;
-    float actualLineHeight = std::min(lineHeight_, maxLineHeight);
-    
-    size_t line = static_cast<size_t>((y - bounds_.y - 2) / actualLineHeight);
+    if (totalLines_ == 0) return 0;
+
+    float usableHeight = std::max(1.0f, bounds_.height - 4.0f);
+    float maxLineHeight = usableHeight / static_cast<float>(totalLines_);
+    float actualLineHeight = std::max(0.5f, std::min(lineHeight_, maxLineHeight));
+
+    float relY = std::max(0.0f, y - bounds_.y - 2.0f);
+    size_t line = static_cast<size_t>(relY / actualLineHeight);
     return std::min(line, totalLines_ - 1);
 }
 

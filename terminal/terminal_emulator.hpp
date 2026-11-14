@@ -1,15 +1,29 @@
 // terminal/terminal_emulator.hpp
 #pragma once
 
+#include "pty_handler.hpp"
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <functional>
 #include <memory>
 #include <queue>
+#include <cstdint>
 
 namespace NexusForge::Terminal {
 
-// Terminal cell
+// RGBA color for terminal cells
+struct Color {
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+    float a = 1.0f;
+
+    Color() = default;
+    Color(float r_, float g_, float b_, float a_ = 1.0f) : r(r_), g(g_), b(b_), a(a_) {}
+};
+
+// Terminal cell (legacy struct preserved)
 struct TerminalCell {
     char character = ' ';
     bool bold = false;
@@ -104,191 +118,100 @@ struct ColorTable {
 // Terminal emulator
 class TerminalEmulator {
 public:
+    struct Cell {
+        char character = ' ';
+        Color fgColor{0.9f, 0.9f, 0.9f, 1.0f};
+        Color bgColor{0.1f, 0.1f, 0.12f, 1.0f};
+        bool bold = false;
+        bool underline = false;
+        bool inverse = false;
+    };
+
     TerminalEmulator();
     ~TerminalEmulator();
 
     // Initialization
-    bool initialize(size_t columns = 80, size_t rows = 24);
+    bool initialize(int cols = 80, int rows = 24);
     void shutdown();
 
-    // Screen access
-    const TerminalScreen& getScreen() const { return screen_; }
-    const ScrollbackBuffer& getScrollback() const { return scrollback_; }
-    size_t getColumns() const { return screen_.columns; }
-    size_t getRows() const { return screen_.rows; }
+    // Process spawning
+    bool spawn(const std::string& shell,
+               const std::vector<std::string>& args = {},
+               const std::string& cwd = "",
+               const std::unordered_map<std::string, std::string>& env = {});
 
-    // Input
+    // Input / Output
     void write(const std::string& data);
-    void write(const char* data, size_t length);
-    void input(const std::string& text);
-    void sendKey(int keyCode, int modifiers);
+    void write(const char* data, size_t len);
+    void input(const std::string& data);
+    void inputKey(int keyCode, int modifiers);
+    void sendKey(int keyCode, int modifiers) { inputKey(keyCode, modifiers); }
 
-    // Output callbacks
-    using OutputCallback = std::function<void(const std::string&)>;
-    void setOutputCallback(OutputCallback callback) { outputCallback_ = callback; }
-
-    // Screen changed callback
-    using ScreenChangedCallback = std::function<void()>;
-    void setScreenChangedCallback(ScreenChangedCallback callback) { screenChanged_ = callback; }
-
-    // Title callback
-    using TitleCallback = std::function<void(const std::string&)>;
-    void setTitleCallback(TitleCallback callback) { titleCallback_ = callback; }
-
-    // Cursor
-    void showCursor();
-    void hideCursor();
-    void moveCursor(size_t x, size_t y);
-    void moveCursorRelative(int dx, int dy);
-
-    // Scrolling
-    void scrollUp(size_t lines = 1);
-    void scrollDown(size_t lines = 1);
-    void setScrollOffset(size_t offset);
-    size_t getScrollOffset() const { return scrollback_.scrollOffset; }
-    void scrollToTop();
-    void scrollToBottom();
-
-    // Selection
-    void selectAll();
-    void clearSelection();
-    std::string getSelectedText() const;
-    bool hasSelection() const { return hasSelection_; }
-
-    // Search
-    bool search(const std::string& pattern, bool forward = true, bool caseSensitive = false);
-    void clearSearch();
-
-    // Copy/Paste
-    std::string getClipboardText() const;
-    void setClipboardText(const std::string& text);
-
-    // Reset
-    void reset();
-    void softReset();
+    // Screen operations
+    void resize(int cols, int rows);
     void clear();
-    void clearHistory();
+    void scrollUp(int lines = 1);
+    void scrollDown(int lines = 1);
 
-    // Modes
-    const TerminalModes& getModes() const { return modes_; }
-    void setMode(size_t mode, bool value);
-    bool getMode(size_t mode) const;
+    const std::vector<std::vector<Cell>>& getScreen() const;
+    int getCursorX() const;
+    int getCursorY() const;
+    void setCursorVisible(bool visible);
+    bool isCursorVisible() const;
+    int getRows() const;
+    int getCols() const;
+    size_t getColumns() const { return static_cast<size_t>(cols_); }
 
-    // Colors
-    const ColorTable& getColors() const { return colors_; }
-    void setColor(size_t index, uint32_t color);
+    // Process state
+    bool isProcessRunning() const;
+    void kill();
 
-    // PTY interaction
-    void setPtyDataCallback(OutputCallback callback) { ptyDataCallback_ = callback; }
-    void onPtyData(const std::string& data);
-
-private:
-    TerminalScreen screen_;
-    ScrollbackBuffer scrollback_;
-    TerminalModes modes_;
-    ColorTable colors_;
-
-    ParserState parserState_ = ParserState::Ground;
-    std::string escapeBuffer_;
-    std::vector<int> csiParams_;
-
-    // Current style
-    uint8_t currentFgColor = 7;
-    uint8_t currentBgColor = 0;
-    bool currentBold = false;
-    bool currentDim = false;
-    bool currentItalic = false;
-    bool currentUnderline = false;
-    bool currentBlink = false;
-    bool currentReverse = false;
-    bool currentHidden = false;
-    bool currentStrikethrough = false;
-
-    // Margins
-    size_t scrollTop_ = 0;
-    size_t scrollBottom_ = 0;
-
-    // Saved state (for DECSC/DECRC)
-    struct SavedState {
-        size_t cursorX;
-        size_t cursorY;
-        uint8_t fgColor;
-        uint8_t bgColor;
-        bool bold, dim, italic, underline, blink, reverse, hidden, strikethrough;
-        TerminalModes modes;
-    };
-    SavedState savedState_{};
+    // Clipboard
+    void copySelection();
+    void paste();
 
     // Callbacks
-    OutputCallback outputCallback_;
-    OutputCallback ptyDataCallback_;
-    ScreenChangedCallback screenChanged_;
-    TitleCallback titleCallback_;
+    std::function<void()> onScreenChanged;
+    using OutputCallback = std::function<void(const std::string&)>;
+    using ScreenChangedCallback = std::function<void()>;
+    using TitleCallback = std::function<void(const std::string&)>;
+    void setScreenChangedCallback(ScreenChangedCallback callback) { onScreenChanged = std::move(callback); }
 
-    // Selection
-    bool hasSelection_ = false;
-    size_t selectionStartX_ = 0;
-    size_t selectionStartY_ = 0;
-    size_t selectionEndX_ = 0;
-    size_t selectionEndY_ = 0;
+private:
+    PTYHandler* pty_ = nullptr;
+    int rows_ = 24;
+    int cols_ = 80;
+    int cursorX_ = 0;
+    int cursorY_ = 0;
+    int savedCursorX_ = 0;
+    int savedCursorY_ = 0;
+    bool cursorVisible_ = true;
 
-    // Parser
-    void parse(const char* data, size_t length);
+    int scrollTop_ = 0;
+    int scrollBottom_ = 23;
+
+    std::vector<std::vector<Cell>> screen_;
+    Color defaultFg_;
+    Color defaultBg_;
+    Color currentFg_;
+    Color currentBg_;
+    std::vector<Color> ansiColors_;
+    bool currentBold_ = false;
+    bool currentUnderline_ = false;
+    bool currentInverse_ = false;
+
+    bool inEscapeSequence_ = false;
+    std::string escapeSequence_;
+
     void processChar(char c);
+    void processEscapeSequence(char c);
+    void executeCSI(const std::string& params, char command);
     void executeEscape(const std::string& seq);
-    void processCsi(char finalChar);
-    void processOsc(const std::string& params);
-
-    // CSI handlers
-    void csiCursorUp(int n);
-    void csiCursorDown(int n);
-    void csiCursorForward(int n);
-    void csiCursorBack(int n);
-    void csiCursorNextLine(int n);
-    void csiCursorPrevLine(int n);
-    void csiCursorColumn(int n);
-    void csiCursorPosition(int line, int column);
-    void csiEraseDisplay(int n);
-    void csiEraseLine(int n);
-    void csiScrollUp(int n);
-    void csiScrollDown(int n);
-    void csiCursorPositionReport();
-    void csiSetMode(int n);
-    void csiResetMode(int n);
-    void csiSetGraphicsRendition(const std::vector<int>& params);
-    void csiDeviceStatusReport(int n);
-
-    // Helpers
-    void updateCell();
-    void lineFeed();
-    void carriageReturn();
-    void tab();
-    void backspace();
-    void deleteChar();
-    void insertBlank(int n);
-    void saveCursor();
-    void restoreCursor();
-    void setScrollRegion(size_t top, size_t bottom);
-    void applyScrollRegion();
-};
-
-// PTY Handler interface
-class PTYHandler {
-public:
-    virtual ~PTYHandler() = default;
-    virtual bool initialize(const std::string& shell, const std::string& cwd,
-                            const std::unordered_map<std::string, std::string>& env) = 0;
-    virtual void shutdown() = 0;
-    virtual void write(const std::string& data) = 0;
-    virtual void resize(size_t columns, size_t rows) = 0;
-    virtual bool isRunning() const = 0;
-    virtual int getPid() const = 0;
-
-    using DataCallback = std::function<void(const std::string&)>;
-    using ExitCallback = std::function<void(int)>;
-
-    virtual void setDataCallback(DataCallback callback) = 0;
-    virtual void setExitCallback(ExitCallback callback) = 0;
+    std::vector<int> parseParams(const std::string& params);
+    void eraseDisplay(int mode);
+    void eraseLine(int mode);
+    void setGraphicsMode(const std::vector<int>& params);
+    std::string getKeyPressSequence(int keyCode, int modifiers);
 };
 
 // Factory function

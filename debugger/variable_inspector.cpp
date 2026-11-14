@@ -205,9 +205,8 @@ std::string VariableInspector::formatValue(const Variable& var, ValueFormat form
 }
 
 std::string VariableInspector::formatAsDecimal(const std::string& value) const {
-    // Try to parse and format as decimal
     try {
-        if (value.substr(0, 2) == "0x") {
+        if (value.size() >= 2 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
             long long val = std::stoll(value.substr(2), nullptr, 16);
             return std::to_string(val);
         }
@@ -218,12 +217,12 @@ std::string VariableInspector::formatAsDecimal(const std::string& value) const {
 std::string VariableInspector::formatAsHex(const std::string& value) const {
     try {
         long long val;
-        if (value.substr(0, 2) == "0x") {
+        if (value.size() >= 2 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
             val = std::stoll(value.substr(2), nullptr, 16);
         } else {
             val = std::stoll(value);
         }
-        
+
         std::ostringstream oss;
         oss << "0x" << std::hex << val;
         return oss.str();
@@ -234,18 +233,22 @@ std::string VariableInspector::formatAsHex(const std::string& value) const {
 std::string VariableInspector::formatAsBinary(const std::string& value) const {
     try {
         long long val;
-        if (value.substr(0, 2) == "0x") {
+        if (value.size() >= 2 && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
             val = std::stoll(value.substr(2), nullptr, 16);
         } else {
             val = std::stoll(value);
         }
-        
-        std::string binary;
-        while (val > 0) {
-            binary = (val % 2 == 0 ? "0" : "1") + binary;
-            val /= 2;
+
+        if (val == 0) {
+            return "0b0";
         }
-        
+        unsigned long long uval = static_cast<unsigned long long>(val);
+        std::string binary;
+        while (uval > 0) {
+            binary.push_back((uval & 1ULL) ? '1' : '0');
+            uval >>= 1;
+        }
+        std::reverse(binary.begin(), binary.end());
         return "0b" + binary;
     } catch (...) {}
     return value;
@@ -313,8 +316,180 @@ void VariableInspector::updateWatchExpressions(const std::function<void(WatchExp
 }
 
 std::string VariableInspector::evaluateExpression(const std::string& expression) {
-    // In production, would send evaluate request to debug adapter
+    (void)expression;
     return "<evaluate result>";
+}
+
+std::vector<Scope> VariableInspector::getScopes(int frameId) {
+    (void)frameId;
+    Scope local;
+    local.name = "Local";
+    local.variablesReference = 1;
+    return {local};
+}
+
+std::vector<Variable> VariableInspector::getVariables(int variablesReference, int start, int count) {
+    (void)variablesReference;
+    if (start < 0 || static_cast<size_t>(start) >= variables_.size()) return {};
+    size_t begin = static_cast<size_t>(start);
+    size_t end = (count > 0) ? std::min(variables_.size(), begin + static_cast<size_t>(count)) : variables_.size();
+    return std::vector<Variable>(variables_.begin() + begin, variables_.begin() + end);
+}
+
+Variable VariableInspector::evaluate(const std::string& expression, int frameId, const std::string& context) {
+    (void)frameId;
+    (void)context;
+    Variable* existing = getVariable(expression);
+    if (existing) return *existing;
+    Variable v;
+    v.name = expression;
+    v.value = evaluateExpression(expression);
+    return v;
+}
+
+std::string VariableInspector::addWatch(const std::string& expression) {
+    setWatchExpression(expression);
+    return std::to_string(watches_.back().id);
+}
+
+void VariableInspector::removeWatch(const std::string& id) {
+    try {
+        removeWatchExpression(std::stoi(id));
+    } catch (...) {}
+}
+
+void VariableInspector::updateWatches() {
+    for (auto& w : watches_) {
+        w.result = evaluate(w.expression);
+    }
+}
+
+std::vector<CallStackFrame> VariableInspector::getCallStack(int threadId, int startFrame, int levels) {
+    (void)threadId; (void)startFrame; (void)levels;
+    return {};
+}
+
+bool VariableInspector::setVariable(int variablesReference, const std::string& name, const std::string& value) {
+    (void)variablesReference;
+    Variable* v = getVariable(name);
+    if (!v) return false;
+    v->value = value;
+    return true;
+}
+
+bool VariableInspector::setExpression(const std::string& expression, const std::string& value) {
+    return setVariable(0, expression, value);
+}
+
+Variable VariableInspector::getDataTip(const std::string& expression, int frameId) {
+    return evaluate(expression, frameId, "hover");
+}
+
+Variable VariableInspector::createPrimitiveVariable(const std::string& name, const std::string& value, const std::string& type) {
+    Variable v;
+    v.name = name;
+    v.value = value;
+    v.type = type;
+    v.variableType = VariableType::Primitive;
+    return v;
+}
+
+Variable VariableInspector::createObjectVariable(const std::string& name, int variablesReference) {
+    Variable v;
+    v.name = name;
+    v.type = "object";
+    v.variableType = VariableType::Object;
+    v.variablesReference = variablesReference;
+    v.childrenReference = variablesReference;
+    v.hasChildren = variablesReference > 0;
+    return v;
+}
+
+Variable VariableInspector::createArrayVariable(const std::string& name, int variablesReference, int size) {
+    Variable v;
+    v.name = name;
+    v.type = "array";
+    v.variableType = VariableType::Array;
+    v.variablesReference = variablesReference;
+    v.childrenReference = variablesReference;
+    v.indexedVariables = size;
+    v.hasChildren = size > 0;
+    return v;
+}
+
+// ExpressionEvaluator implementation
+ExpressionEvaluator::ExpressionEvaluator() = default;
+ExpressionEvaluator::~ExpressionEvaluator() = default;
+
+Variable ExpressionEvaluator::evaluate(const std::string& expression, int frameId) {
+    return evaluateIdentifier(expression, frameId);
+}
+
+VariableType ExpressionEvaluator::detectType(const std::string& value) {
+    if (value == "true" || value == "false") return VariableType::Boolean;
+    if (value == "null" || value == "nullptr") return VariableType::Null;
+    if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
+                              (value.front() == '\'' && value.back() == '\''))) {
+        return VariableType::String;
+    }
+    try {
+        size_t idx = 0;
+        std::stod(value, &idx);
+        if (idx == value.size()) return VariableType::Number;
+    } catch (...) {}
+    return VariableType::Unknown;
+}
+
+std::string ExpressionEvaluator::getTypeName(VariableType type) {
+    switch (type) {
+        case VariableType::Primitive: return "primitive";
+        case VariableType::String: return "string";
+        case VariableType::Array: return "array";
+        case VariableType::Object: return "object";
+        case VariableType::Function: return "function";
+        case VariableType::Class: return "class";
+        case VariableType::Null: return "null";
+        case VariableType::Undefined: return "undefined";
+        case VariableType::Boolean: return "boolean";
+        case VariableType::Number: return "number";
+        case VariableType::Symbol: return "symbol";
+        default: return "unknown";
+    }
+}
+
+Variable ExpressionEvaluator::evaluateIdentifier(const std::string& name, int frameId) {
+    (void)frameId;
+    Variable v;
+    v.name = name;
+    v.value = name;
+    v.variableType = detectType(name);
+    v.type = getTypeName(v.variableType);
+    return v;
+}
+
+Variable ExpressionEvaluator::evaluateBinaryOp(const std::string& left, const std::string& op,
+                                                const std::string& right, int frameId) {
+    (void)frameId;
+    Variable v;
+    v.name = left + " " + op + " " + right;
+    return v;
+}
+
+Variable ExpressionEvaluator::evaluateMemberAccess(const std::string& object, const std::string& member,
+                                                    int frameId) {
+    (void)frameId;
+    Variable v;
+    v.name = object + "." + member;
+    return v;
+}
+
+Variable ExpressionEvaluator::evaluateFunctionCall(const std::string& func,
+                                                    const std::vector<std::string>& args, int frameId) {
+    (void)args;
+    (void)frameId;
+    Variable v;
+    v.name = func + "()";
+    return v;
 }
 
 } // namespace NexusForge::Debugger

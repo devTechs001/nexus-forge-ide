@@ -55,6 +55,7 @@ void Terminal::clear() {
     cursorX_ = 0;
     cursorY_ = 0;
     scrollOffset_ = 0;
+    if (onClear) onClear();
     markDirty();
 }
 
@@ -131,7 +132,8 @@ void Terminal::restoreCursor() {
 }
 
 void Terminal::scrollToTop() {
-    scrollOffset_ = static_cast<int>(lines_.size()) - getVisibleLines();
+    int maxScroll = std::max(0, static_cast<int>(lines_.size()) - getVisibleLines());
+    scrollOffset_ = maxScroll;
 }
 
 void Terminal::scrollToBottom() {
@@ -139,9 +141,8 @@ void Terminal::scrollToBottom() {
 }
 
 void Terminal::scrollBy(int lines) {
-    scrollOffset_ += lines;
-    scrollOffset_ = std::max(0, scrollOffset_);
-    scrollOffset_ = std::min(scrollOffset_, static_cast<int>(lines_.size()) - getVisibleLines());
+    int maxScroll = std::max(0, static_cast<int>(lines_.size()) - getVisibleLines());
+    scrollOffset_ = std::clamp(scrollOffset_ + lines, 0, maxScroll);
 }
 
 void Terminal::render(RenderEngine& renderer) {
@@ -227,6 +228,22 @@ bool Terminal::onScroll(const Core::ScrollEvent& event) {
     return true;
 }
 
+void Terminal::processANSIEscape(const std::string& escape) {
+    if (escape == "0m" || escape == "m") {
+        resetStyles();
+    } else if (escape == "1m") {
+        setBold(true);
+    } else if (escape == "2m") {
+        setDim(true);
+    } else if (escape == "3m") {
+        setItalic(true);
+    } else if (escape == "4m") {
+        setUnderline(true);
+    } else if (escape == "7m") {
+        setInverse(true);
+    }
+}
+
 void Terminal::addLine(const TerminalLine& line) {
     lines_.push_back(line);
     while (lines_.size() > scrollbackSize_) {
@@ -235,12 +252,14 @@ void Terminal::addLine(const TerminalLine& line) {
 }
 
 void Terminal::ensureCursorVisible() {
-    // Keep cursor in visible area
+    scrollOffset_ = 0;
 }
 
 int Terminal::getVisibleLines() const {
-    float lineHeight = style_.fontSize + 4;
-    return static_cast<int>((bounds_.height - style_.padding.vertical()) / lineHeight);
+    float lineHeight = style_.fontSize + 4.0f;
+    if (lineHeight <= 0.0f) return 1;
+    int visible = static_cast<int>((bounds_.height - style_.padding.vertical()) / lineHeight);
+    return std::max(1, visible);
 }
 
 } // namespace NexusForge::UI

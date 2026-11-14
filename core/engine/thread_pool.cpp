@@ -11,8 +11,19 @@ ThreadPool::~ThreadPool() {
 }
 
 bool ThreadPool::initialize(int numThreads) {
+    if (!workers_.empty()) {
+        shutdown();
+    }
+
     if (numThreads <= 0) {
         numThreads = std::max(1, static_cast<int>(std::thread::hardware_concurrency()));
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        stop_ = false;
+        paused_ = false;
+        activeTasks_ = 0;
     }
 
     workers_.reserve(numThreads);
@@ -30,6 +41,7 @@ void ThreadPool::shutdown() {
     {
         std::lock_guard<std::mutex> lock(queueMutex_);
         stop_ = true;
+        paused_ = false;
     }
 
     condition_.notify_all();
@@ -65,22 +77,31 @@ void ThreadPool::workerFunction(size_t workerIndex) {
 
             task = std::move(const_cast<Task&>(taskQueue_.top()));
             taskQueue_.pop();
+            // Increment activeTasks_ while holding queueMutex_ so waitForAll() never sees a false idle window
+            activeTasks_++;
         }
 
         workerInfo_[workerIndex].busy = true;
         workerInfo_[workerIndex].currentTask = task.name;
-        activeTasks_++;
 
         try {
-            task.function();
-        } catch (const std::exception& e) {
+            if (task.function) {
+                task.function();
+            }
+        } catch (const std::exception&) {
             // Log exception
+        } catch (...) {
+            // Catch-all so worker threads never terminate unexpectedly
         }
 
+        workerInfo_[workerIndex].currentTask.clear();
         workerInfo_[workerIndex].busy = false;
         workerInfo_[workerIndex].tasksCompleted++;
-        activeTasks_--;
 
+        {
+            std::lock_guard<std::mutex> lock(queueMutex_);
+            activeTasks_--;
+        }
         completionCondition_.notify_all();
     }
 }
@@ -88,13 +109,20 @@ void ThreadPool::workerFunction(size_t workerIndex) {
 void ThreadPool::parallel_for(size_t start, size_t end,
                                std::function<void(size_t)> func,
                                size_t chunkSize) {
-    if (start >= end) return;
+    if (start >= end || !func) return;
 
     size_t total = end - start;
-    size_t numThreads = workers_.size();
+    size_t numThreads = std::max(size_t(1), workers_.size());
 
     if (chunkSize == 0) {
-        chunkSize = std::max(size_t(1), total / numThreads);
+        chunkSize = std::max(size_t(1), (total + numThreads - 1) / numThreads);
+    }
+
+    if (workers_.empty()) {
+        for (size_t j = start; j < end; ++j) {
+            func(j);
+        }
+        return;
     }
 
     std::vector<std::future<void>> futures;
@@ -115,11 +143,15 @@ void ThreadPool::parallel_for(size_t start, size_t end,
 }
 
 void ThreadPool::pause() {
+    std::lock_guard<std::mutex> lock(queueMutex_);
     paused_ = true;
 }
 
 void ThreadPool::resume() {
-    paused_ = false;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        paused_ = false;
+    }
     condition_.notify_all();
 }
 

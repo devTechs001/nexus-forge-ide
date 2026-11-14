@@ -3,6 +3,7 @@
 
 #include "ai_autocomplete.hpp"
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 
 namespace NexusForge::AI {
@@ -11,23 +12,28 @@ AIAutocomplete::AIAutocomplete(ModelManager* modelManager)
     : modelManager_(modelManager), currentSuggestionIndex_(0) {
 }
 
-AIAutocomplete::~AIAutocomplete() = default;
+AIAutocomplete::~AIAutocomplete() {
+    alive_->store(false);
+    cancelPendingRequests();
+}
 
 void AIAutocomplete::requestCompletion(const CompletionContext& context) {
     if (!config_.enabled) return;
-    
+
     // Debounce check
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - lastRequestTime_).count();
-    
-    if (elapsed < config_.debounceMs) {
-        return;
+    if (lastRequestTime_.time_since_epoch().count() != 0) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - lastRequestTime_).count();
+        if (elapsed < config_.debounceMs) {
+            return;
+        }
     }
-    
+
     lastRequestTime_ = now;
     requestPending_ = true;
-    
+    uint64_t currentReqId = ++requestId_;
+
     // Build completion request
     CompletionRequest request;
     request.prompt = context.prefix;
@@ -38,64 +44,87 @@ void AIAutocomplete::requestCompletion(const CompletionContext& context) {
     request.cursorColumn = static_cast<int>(context.cursorColumn);
     request.maxTokens = config_.maxSuggestionLength;
     request.temperature = 0.2f;
-    
+
     // Request from model manager
     if (modelManager_) {
         auto future = modelManager_->getCompletions(request);
-        
-        // Process results asynchronously
-        std::thread([this, future = std::move(future)]() mutable {
-            auto results = future.get();
-            processCompletions(results, {});
-            requestPending_ = false;
+        auto alive = alive_;
+
+        // Process results asynchronously (safe against destruction & cancellation)
+        std::thread([this, alive, currentReqId, context, future = std::move(future)]() mutable {
+            try {
+                auto results = future.get();
+                if (!alive->load()) return;
+                if (requestId_.load() == currentReqId && requestPending_.load()) {
+                    processCompletions(results, context);
+                    requestPending_ = false;
+                }
+            } catch (...) {
+                if (alive->load()) {
+                    requestPending_ = false;
+                }
+            }
         }).detach();
+    } else {
+        requestPending_ = false;
     }
 }
 
 void AIAutocomplete::cancelPendingRequests() {
+    ++requestId_;
     requestPending_ = false;
 }
 
 void AIAutocomplete::processCompletions(
     const std::vector<CompletionResult>& results,
     const CompletionContext& context) {
-    
-    std::lock_guard<std::mutex> lock(suggestionMutex_);
-    
-    suggestions_.clear();
-    
-    for (const auto& result : results) {
-        InlineSuggestion suggestion;
-        suggestion.text = result.text;
-        suggestion.displayText = result.displayText;
-        suggestion.confidence = result.confidence;
-        suggestion.source = "ai";
-        suggestion.timestamp = std::chrono::steady_clock::now();
-        
-        if (suggestion.confidence >= config_.minConfidence) {
-            suggestions_.push_back(suggestion);
+
+    InlineSuggestion readySuggestion;
+    bool hasReady = false;
+    std::function<void(const InlineSuggestion&)> cb;
+
+    {
+        std::lock_guard<std::mutex> lock(suggestionMutex_);
+
+        suggestions_.clear();
+
+        for (const auto& result : results) {
+            InlineSuggestion suggestion;
+            suggestion.text = cleanupSuggestion(result.text, context);
+            suggestion.displayText = result.displayText;
+            suggestion.confidence = result.confidence;
+            suggestion.source = "ai";
+            suggestion.timestamp = std::chrono::steady_clock::now();
+
+            if (suggestion.confidence >= config_.minConfidence) {
+                suggestions_.push_back(suggestion);
+            }
+        }
+
+        // Sort by confidence
+        std::sort(suggestions_.begin(), suggestions_.end(),
+            [](const InlineSuggestion& a, const InlineSuggestion& b) {
+                return a.confidence > b.confidence;
+            });
+
+        // Limit suggestions
+        size_t maxCount = config_.maxSuggestions > 0 ? static_cast<size_t>(config_.maxSuggestions) : 0;
+        if (suggestions_.size() > maxCount) {
+            suggestions_.resize(maxCount);
+        }
+
+        // Set current suggestion
+        if (!suggestions_.empty()) {
+            currentSuggestion_ = suggestions_[0];
+            currentSuggestionIndex_ = 0;
+            readySuggestion = currentSuggestion_;
+            hasReady = true;
+            cb = onSuggestionReady;
         }
     }
-    
-    // Sort by confidence
-    std::sort(suggestions_.begin(), suggestions_.end(),
-        [](const InlineSuggestion& a, const InlineSuggestion& b) {
-            return a.confidence > b.confidence;
-        });
-    
-    // Limit suggestions
-    if (suggestions_.size() > config_.maxSuggestions) {
-        suggestions_.resize(config_.maxSuggestions);
-    }
-    
-    // Set current suggestion
-    if (!suggestions_.empty()) {
-        currentSuggestion_ = suggestions_[0];
-        currentSuggestionIndex_ = 0;
-    }
-    
-    if (onSuggestionReady) {
-        onSuggestionReady(currentSuggestion_);
+
+    if (hasReady && cb) {
+        cb(readySuggestion);
     }
 }
 
@@ -132,30 +161,43 @@ void AIAutocomplete::acceptSuggestion() {
 }
 
 void AIAutocomplete::acceptPartialSuggestion(size_t wordCount) {
-    std::lock_guard<std::mutex> lock(suggestionMutex_);
-    
-    if (currentSuggestion_.text.empty()) return;
-    
-    // Find word boundaries
-    size_t words = 0;
-    size_t endPos = 0;
-    
-    for (size_t i = 0; i < currentSuggestion_.text.length(); ++i) {
-        if (std::isspace(currentSuggestion_.text[i])) {
-            words++;
-            if (words >= wordCount) {
-                endPos = i + 1;
-                break;
+    std::function<void()> clearedCb;
+    {
+        std::lock_guard<std::mutex> lock(suggestionMutex_);
+
+        if (currentSuggestion_.text.empty() || wordCount == 0) return;
+
+        // Find word boundaries
+        size_t words = 0;
+        size_t endPos = 0;
+
+        for (size_t i = 0; i < currentSuggestion_.text.length(); ++i) {
+            if (std::isspace(static_cast<unsigned char>(currentSuggestion_.text[i]))) {
+                words++;
+                if (words >= wordCount) {
+                    endPos = i + 1;
+                    break;
+                }
             }
         }
+
+        if (endPos == 0) {
+            endPos = currentSuggestion_.text.length();
+        }
+
+        std::string acceptedPart = currentSuggestion_.text.substr(0, endPos);
+        recordPartialAcceptance(currentSuggestion_, acceptedPart);
+
+        currentSuggestion_.text.erase(0, endPos);
+        if (currentSuggestion_.text.empty()) {
+            currentSuggestion_ = InlineSuggestion{};
+            suggestions_.clear();
+            clearedCb = onSuggestionCleared;
+        }
     }
-    
-    if (endPos == 0) {
-        endPos = currentSuggestion_.text.length();
+    if (clearedCb) {
+        clearedCb();
     }
-    
-    std::string acceptedPart = currentSuggestion_.text.substr(0, endPos);
-    recordPartialAcceptance(currentSuggestion_, acceptedPart);
 }
 
 void AIAutocomplete::dismissSuggestion() {
@@ -233,16 +275,18 @@ std::vector<std::string> AIAutocomplete::gatherRelevantContext(
 std::string AIAutocomplete::cleanupSuggestion(const std::string& suggestion,
                                                const CompletionContext& context) {
     std::string result = suggestion;
-    
+
     // Remove leading whitespace that duplicates existing indentation
     size_t prefixEnd = context.prefix.find_last_not_of(" \t");
-    size_t existingIndent = context.prefix.length() - prefixEnd - 1;
-    
+    size_t existingIndent = (prefixEnd == std::string::npos)
+        ? context.prefix.length()
+        : (context.prefix.length() - prefixEnd - 1);
+
     size_t firstNonSpace = result.find_first_not_of(" \t");
     if (firstNonSpace != std::string::npos && firstNonSpace <= existingIndent) {
         result = result.substr(firstNonSpace);
     }
-    
+
     return result;
 }
 

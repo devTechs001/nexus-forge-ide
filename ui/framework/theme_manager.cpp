@@ -11,14 +11,19 @@ ThemeManager::~ThemeManager() = default;
 
 void ThemeManager::registerTheme(const Theme& theme) {
     themes_[theme.id] = theme;
-    if (!currentTheme_) {
-        currentTheme_ = &themes_[theme.id];
+    if (currentThemeId_.empty() || currentThemeId_ == theme.id) {
+        currentThemeId_ = theme.id;
+        currentTheme_ = &themes_[currentThemeId_];
+    } else {
+        auto it = themes_.find(currentThemeId_);
+        currentTheme_ = (it != themes_.end()) ? &it->second : nullptr;
     }
 }
 
 void ThemeManager::setTheme(const std::string& themeId) {
     auto it = themes_.find(themeId);
     if (it != themes_.end()) {
+        currentThemeId_ = themeId;
         currentTheme_ = &it->second;
         notifyThemeChanged();
     }
@@ -42,8 +47,24 @@ std::vector<std::string> ThemeManager::getAvailableThemes() const {
 
 GradientColor ThemeManager::getColor(const std::string& colorName) const {
     if (currentTheme_) {
-        // Would parse color name and return appropriate color
-        return GradientColor::fromRGBA(0.5f, 0.5f, 0.5f, 1.0f);
+        if (colorName == "backgroundPrimary") return currentTheme_->backgroundPrimary;
+        if (colorName == "backgroundSecondary") return currentTheme_->backgroundSecondary;
+        if (colorName == "backgroundTertiary") return currentTheme_->backgroundTertiary;
+        if (colorName == "surface") return currentTheme_->surface;
+        if (colorName == "surfaceHover") return currentTheme_->surfaceHover;
+        if (colorName == "surfaceActive") return currentTheme_->surfaceActive;
+        if (colorName == "surfaceSelected") return currentTheme_->surfaceSelected;
+        if (colorName == "textPrimary") return currentTheme_->textPrimary;
+        if (colorName == "textSecondary") return currentTheme_->textSecondary;
+        if (colorName == "textDisabled") return currentTheme_->textDisabled;
+        if (colorName == "textInverse") return currentTheme_->textInverse;
+        if (colorName == "accentPrimary") return currentTheme_->accentPrimary;
+        if (colorName == "accentSecondary") return currentTheme_->accentSecondary;
+        if (colorName == "border") return currentTheme_->border;
+        if (colorName == "success") return currentTheme_->success;
+        if (colorName == "warning") return currentTheme_->warning;
+        if (colorName == "error") return currentTheme_->error;
+        if (colorName == "info") return currentTheme_->info;
     }
     return GradientColor::fromRGBA(0.5f, 0.5f, 0.5f, 1.0f);
 }

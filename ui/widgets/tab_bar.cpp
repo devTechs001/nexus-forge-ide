@@ -104,6 +104,15 @@ TabItem* TabBar::getTab(const std::string& id) {
     return nullptr;
 }
 
+const TabItem* TabBar::getTab(const std::string& id) const {
+    for (const auto& tab : tabs_) {
+        if (tab.id == id) {
+            return &tab;
+        }
+    }
+    return nullptr;
+}
+
 void TabBar::setTabsClosable(bool closable) {
     defaultClosable_ = closable;
     for (auto& tab : tabs_) {
@@ -114,7 +123,6 @@ void TabBar::setTabsClosable(bool closable) {
 void TabBar::render(RenderEngine& renderer) {
     if (!isVisibleInHierarchy()) return;
 
-    float x = bounds_.x;
     float y = bounds_.y;
     
     // Draw tab bar background

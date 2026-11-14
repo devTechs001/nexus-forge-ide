@@ -1,6 +1,7 @@
 // workspace/workspace_manager.hpp
 #pragma once
 
+#include "search_engine.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -82,19 +83,6 @@ struct TextSearchOptions {
     std::vector<std::string> excludePatterns;
     int maxResults = 20000;
     int contextLines = 0;
-};
-
-// Search result
-struct SearchResult {
-    std::string filePath;
-    size_t lineNumber;
-    size_t column;
-    std::string lineText;
-    std::string matchText;
-    size_t matchStart;
-    size_t matchLength;
-    std::vector<std::string> contextBefore;
-    std::vector<std::string> contextAfter;
 };
 
 // File watcher events

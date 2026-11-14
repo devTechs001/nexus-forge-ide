@@ -74,6 +74,45 @@ struct FileDiff {
     size_t deletions = 0;
 };
 
+// Git file entry (summary)
+struct GitFile {
+    std::string path;
+    FileStatus status = FileStatus::Untracked;
+};
+
+// Git status summary
+struct GitStatus {
+    std::string branch;
+    int ahead = 0;
+    int behind = 0;
+    bool isDirty = false;
+    std::vector<GitFile> stagedFiles;
+    std::vector<GitFile> modifiedFiles;
+    std::vector<GitFile> untrackedFiles;
+};
+
+// Git commit summary
+struct GitCommit {
+    std::string hash;
+    std::string shortHash;
+    std::string message;
+    std::string author;
+    std::string date;
+};
+
+// Git branch summary
+struct GitBranch {
+    std::string name;
+    bool isCurrent = false;
+    bool isRemote = false;
+};
+
+// Git remote summary
+struct GitRemote {
+    std::string name;
+    std::string url;
+};
+
 // Git integration
 class GitIntegration {
 public:
@@ -81,26 +120,32 @@ public:
     ~GitIntegration();
 
     // Repository
+    bool initialize(const std::string& workingDirectory);
     bool openRepository(const std::string& path);
     void closeRepository();
-    bool hasRepository() const { return !repoPath_.empty(); }
-    const std::string& getRepositoryPath() const { return repoPath_; }
+    bool hasRepository() const { return initialized_ || !repoPath_.empty(); }
+    const std::string& getRepositoryPath() const { return !repoPath_.empty() ? repoPath_ : workingDirectory_; }
 
     // Status
-    std::vector<GitFileInfo> getStatus() const;
+    GitStatus getStatus();
+    std::vector<GitFileInfo> getFileStatuses() const;
     GitFileInfo getFileStatus(const std::string& path) const;
     bool isGitRepository(const std::string& path) const;
+    static bool isRepository(const std::string& path);
+    static std::string findRepositoryRoot(const std::string& startPath);
+    bool hasUncommittedChanges() const;
 
     // Branch
     BranchInfo getCurrentBranch() const;
-    std::vector<std::string> getBranches() const;
+    std::vector<GitBranch> getBranches();
     std::vector<std::string> getRemoteBranches() const;
+    bool checkout(const std::string& branchOrCommit);
     bool checkoutBranch(const std::string& name);
     bool createBranch(const std::string& name, const std::string& startPoint = "");
     bool deleteBranch(const std::string& name);
 
     // Remote
-    std::vector<std::string> getRemotes() const;
+    std::vector<GitRemote> getRemotes();
     bool fetch(const std::string& remote = "origin");
     bool pull(const std::string& remote = "origin", const std::string& branch = "");
     bool push(const std::string& remote = "origin", const std::string& branch = "");
@@ -114,13 +159,15 @@ public:
     // Commit
     bool commit(const std::string& message);
     bool amendCommit(const std::string& message);
-    std::vector<CommitInfo> getLog(size_t count = 20) const;
+    std::vector<GitCommit> getLog(int maxEntries = 20);
     CommitInfo getCommit(const std::string& hash) const;
 
     // Diff
-    FileDiff getDiff(const std::string& path) const;
+    std::string getDiff(const std::string& filePath);
+    FileDiff getFileDiff(const std::string& path) const;
     FileDiff getStagedDiff(const std::string& path) const;
     FileDiff getDiffBetweenCommits(const std::string& from, const std::string& to) const;
+    std::string getFileContent(const std::string& filePath, const std::string& revision = "HEAD");
     std::string getFileAtCommit(const std::string& path, const std::string& commit) const;
 
     // Blame
@@ -128,9 +175,10 @@ public:
         std::string hash;
         std::string author;
         std::chrono::system_clock::time_point date;
-        int lineNumber;
+        int lineNumber = 0;
         std::string content;
     };
+    std::string getBlame(const std::string& filePath, size_t line);
     std::vector<BlameLine> blame(const std::string& path) const;
 
     // Stash
@@ -150,10 +198,17 @@ public:
     void addChangeListener(RepositoryChangedCallback callback);
 
 private:
+    bool initialized_ = false;
+    bool detachedHead_ = false;
+    std::string workingDirectory_;
+    std::string currentBranch_;
     std::string repoPath_;
     std::string gitPath_;
     std::vector<RepositoryChangedCallback> listeners_;
 
+    void parseStagedFiles(std::vector<GitFile>& files);
+    void parseModifiedFiles(std::vector<GitFile>& files);
+    void parseUntrackedFiles(std::vector<GitFile>& files);
     std::string executeGitCommand(const std::vector<std::string>& args) const;
     void notifyChanged();
 };

@@ -2,6 +2,7 @@
 #include "settings_manager.hpp"
 #include <fstream>
 #include <sstream>
+#include <filesystem>
 
 namespace NexusForge::Config {
 
@@ -12,23 +13,40 @@ SettingsManager::~SettingsManager() {
 }
 
 bool SettingsManager::initialize(const std::string& configPath) {
-    configPath_ = configPath;
-    dataPath_ = configPath + "/data";
-    return load();
-}
-
-void SettingsManager::shutdown() {
-    save();
-}
-
-bool SettingsManager::save() {
-    std::ofstream file(configPath_ + "/settings.json");
-    if (!file.is_open()) return false;
-    file << serialize();
+    std::filesystem::path p(configPath);
+    if (p.extension() == ".json") {
+        configPath_ = p.has_parent_path() ? p.parent_path().string() : ".";
+    } else {
+        configPath_ = configPath;
+    }
+    dataPath_ = configPath_.empty() ? "data" : (configPath_ + "/data");
+    std::error_code ec;
+    if (!configPath_.empty()) {
+        std::filesystem::create_directories(configPath_, ec);
+    }
+    if (!load()) {
+        // First run: save default settings file rather than failing initialization
+        save();
+    }
     return true;
 }
 
+void SettingsManager::shutdown() {
+    if (!configPath_.empty()) {
+        save();
+    }
+}
+
+bool SettingsManager::save() {
+    if (configPath_.empty()) return false;
+    std::ofstream file(configPath_ + "/settings.json");
+    if (!file.is_open()) return false;
+    file << serialize();
+    return file.good();
+}
+
 bool SettingsManager::load() {
+    if (configPath_.empty()) return false;
     std::ifstream file(configPath_ + "/settings.json");
     if (!file.is_open()) return false;
     std::stringstream buffer;
@@ -38,8 +56,10 @@ bool SettingsManager::load() {
 }
 
 void SettingsManager::setValue(const std::string& key, const SettingsValue& value) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    values_[key] = value;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        values_[key] = value;
+    }
     notifyChanged(key);
 }
 
@@ -89,12 +109,14 @@ void SettingsManager::setString(const std::string& key, const std::string& value
 }
 
 void SettingsManager::addKeybinding(const Keybinding& binding) {
+    std::lock_guard<std::mutex> lock(mutex_);
     keybindings_.push_back(binding);
 }
 
 Keybinding SettingsManager::getKeybinding(const std::string& key) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& binding : keybindings_) {
-        if (binding.key == key) {
+        if (binding.keyString == key || binding.toString() == key) {
             return binding;
         }
     }
@@ -102,12 +124,18 @@ Keybinding SettingsManager::getKeybinding(const std::string& key) const {
 }
 
 void SettingsManager::onSettingsChanged(SettingsChangedCallback callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
     callbacks_.push_back(std::move(callback));
 }
 
 void SettingsManager::notifyChanged(const std::string& key) {
-    for (auto& cb : callbacks_) {
-        cb(key);
+    std::vector<SettingsChangedCallback> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot = callbacks_;
+    }
+    for (auto& cb : snapshot) {
+        if (cb) cb(key);
     }
 }
 

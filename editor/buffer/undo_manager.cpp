@@ -94,21 +94,21 @@ bool UndoManager::canUndoGroup() const {
 
 void UndoManager::undo() {
     if (undoStack_.empty()) return;
-    
+
+    bool prevUndoing = isUndoing_;
     isUndoing_ = true;
-    
+
     UndoAction action = undoStack_.back();
     undoStack_.pop_back();
-    
-    // Create inverse action for redo
-    UndoAction inverse = createInverse(action);
-    redoStack_.push_back(inverse);
-    
-    // Apply inverse
+
+    // Store original action on redo stack so redo replays it directly
+    redoStack_.push_back(action);
+
+    // Apply inverse to revert action
     applyInverse(action);
-    
-    isUndoing_ = false;
-    
+
+    isUndoing_ = prevUndoing;
+
     if (onUndoRedo) {
         onUndoRedo(true);
     }
@@ -116,38 +116,40 @@ void UndoManager::undo() {
 
 void UndoManager::undoGroup() {
     if (undoStack_.empty()) return;
-    
+
     int groupId = undoStack_.back().groupId;
     if (groupId == 0) {
         undo();
         return;
     }
-    
+
+    bool prevUndoing = isUndoing_;
     isUndoing_ = true;
-    
+
     while (!undoStack_.empty() && undoStack_.back().groupId == groupId) {
         undo();
     }
-    
-    isUndoing_ = false;
+
+    isUndoing_ = prevUndoing;
 }
 
 void UndoManager::redo() {
     if (redoStack_.empty()) return;
-    
+
+    bool prevUndoing = isUndoing_;
     isUndoing_ = true;
-    
+
     UndoAction action = redoStack_.back();
     redoStack_.pop_back();
-    
-    // Push back to undo stack
+
+    // Push original action back to undo stack
     undoStack_.push_back(action);
-    
-    // Apply action
+
+    // Replay original action
     applyAction(action);
-    
-    isUndoing_ = false;
-    
+
+    isUndoing_ = prevUndoing;
+
     if (onUndoRedo) {
         onUndoRedo(false);
     }
@@ -155,20 +157,21 @@ void UndoManager::redo() {
 
 void UndoManager::redoGroup() {
     if (redoStack_.empty()) return;
-    
+
     int groupId = redoStack_.back().groupId;
     if (groupId == 0) {
         redo();
         return;
     }
-    
+
+    bool prevUndoing = isUndoing_;
     isUndoing_ = true;
-    
+
     while (!redoStack_.empty() && redoStack_.back().groupId == groupId) {
         redo();
     }
-    
-    isUndoing_ = false;
+
+    isUndoing_ = prevUndoing;
 }
 
 void UndoManager::clear() {

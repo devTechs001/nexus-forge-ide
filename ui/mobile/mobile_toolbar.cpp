@@ -198,14 +198,17 @@ bool MobileToolbar::onMouseMove(const Core::MouseMoveEvent& event) {
                                 event.y >= bounds.y + 8 && event.y < bounds.y + 48);
     }
     
-    // Check action buttons
+    // Check action buttons (matching render order: right-to-left after search button)
     float rightX = bounds.x + bounds.width - 4;
-    for (auto& action : actions_) {
-        action.hovered = (event.x >= rightX - 40 && event.x < rightX &&
-                          event.y >= bounds.y + 8 && event.y < bounds.y + 48);
+    if (showSearchButton_) {
         rightX -= 40;
     }
-    
+    for (auto it = actions_.rbegin(); it != actions_.rend(); ++it) {
+        it->hovered = (event.x >= rightX - 40 && event.x < rightX &&
+                       event.y >= bounds.y + 8 && event.y < bounds.y + 48);
+        rightX -= 40;
+    }
+
     markDirty();
     return true;
 }
@@ -223,43 +226,45 @@ bool MobileToolbar::onMouseLeave(const Core::MouseMoveEvent& event) {
 
 bool MobileToolbar::onMouseDown(const Core::MouseButtonPressEvent& event) {
     if (event.button != 0) return false;
-    
+
     const Rect& bounds = getBounds();
-    
+    bool inButtonY = (event.y >= bounds.y + 8 && event.y < bounds.y + 48);
+
     // Handle back button
-    if (showBackButton_ && backButtonHovered_) {
-        if (onBack) {
-            onBack();
-        }
+    if (showBackButton_ && inButtonY &&
+        event.x >= bounds.x + 4 && event.x < bounds.x + 44) {
+        if (onBack) onBack();
         return true;
     }
-    
+
     // Handle menu button
-    if (showMenuButton_ && menuButtonHovered_) {
-        if (onMenu) {
-            onMenu();
+    if (showMenuButton_ && !collapsed_ && inButtonY) {
+        float menuX = showBackButton_ ? bounds.x + 44 : bounds.x + 4;
+        if (event.x >= menuX && event.x < menuX + 40) {
+            if (onMenu) onMenu();
+            return true;
         }
-        return true;
     }
-    
+
     // Handle search button
-    if (showSearchButton_ && searchButtonHovered_) {
-        if (onSearch) {
-            onSearch();
-        }
-        return true;
-    }
-    
-    // Handle action buttons
     float rightX = bounds.x + bounds.width - 4;
-    for (const auto& action : actions_) {
-        if (action.hovered && action.onClick) {
-            action.onClick();
+    if (showSearchButton_) {
+        if (inButtonY && event.x >= rightX - 40 && event.x < rightX) {
+            if (onSearch) onSearch();
             return true;
         }
         rightX -= 40;
     }
-    
+
+    // Handle action buttons (right-to-left)
+    for (auto it = actions_.rbegin(); it != actions_.rend(); ++it) {
+        if (inButtonY && event.x >= rightX - 40 && event.x < rightX) {
+            if (it->enabled && it->onClick) it->onClick();
+            return true;
+        }
+        rightX -= 40;
+    }
+
     // Handle title click (expand/collapse)
     if (event.y >= bounds.y && event.y < bounds.y + bounds.height) {
         if (onTitleClick) {
@@ -267,7 +272,7 @@ bool MobileToolbar::onMouseDown(const Core::MouseButtonPressEvent& event) {
         }
         return true;
     }
-    
+
     return false;
 }
 
