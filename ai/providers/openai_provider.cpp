@@ -142,7 +142,8 @@ std::future<ChatResponse> OpenAIProvider::chat(const ChatRequest& request) {
 }
 
 void OpenAIProvider::chatStream(const ChatRequest& request, StreamCallback callback) {
-    if (!initialized_ || !callback) {
+    if (!callback) return;
+    if (!initialized_) {
         callback("", true);
         return;
     }

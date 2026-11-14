@@ -4,16 +4,19 @@
 namespace NexusForge::UI {
 
 void TreeNode::addChild(Ptr child) {
+    if (!child) return;
     child->parent = this;
-    children.push_back(child);
+    children.push_back(std::move(child));
     data.hasChildren = !children.empty();
 }
 
 void TreeNode::removeChild(Ptr child) {
+    if (!child) return;
     children.erase(
         std::remove(children.begin(), children.end(), child),
         children.end()
     );
+    if (child->parent == this) child->parent = nullptr;
     data.hasChildren = !children.empty();
 }
 
@@ -67,6 +70,7 @@ void TreeView::selectNode(TreeNode::Ptr node) {
 }
 
 void TreeView::expandNode(TreeNode::Ptr node) {
+    if (!node) return;
     node->data.expanded = true;
     rebuildVisibleNodes();
     if (onNodeExpanded) {
@@ -75,6 +79,7 @@ void TreeView::expandNode(TreeNode::Ptr node) {
 }
 
 void TreeView::collapseNode(TreeNode::Ptr node) {
+    if (!node) return;
     node->data.expanded = false;
     rebuildVisibleNodes();
     if (onNodeCollapsed) {
@@ -83,6 +88,7 @@ void TreeView::collapseNode(TreeNode::Ptr node) {
 }
 
 void TreeView::toggleNode(TreeNode::Ptr node) {
+    if (!node) return;
     if (node->data.expanded) {
         collapseNode(node);
     } else {
@@ -168,9 +174,15 @@ bool TreeView::handleEvent(Core::Event& event) {
 }
 
 bool TreeView::onMouseDown(const Core::MouseButtonPressEvent& event) {
+    if (!rootNode_) return false;
     TreeNode* node = getNodeAtPosition(event.x, event.y);
     if (node) {
-        auto nodePtr = rootNode_->findChild(node->data.id);
+        TreeNode::Ptr nodePtr;
+        try {
+            nodePtr = node->shared_from_this();
+        } catch (const std::bad_weak_ptr&) {
+            nodePtr = (node == rootNode_.get()) ? rootNode_ : rootNode_->findChild(node->data.id);
+        }
         if (nodePtr) {
             if (node->data.hasChildren) {
                 // Check if clicked on expand icon
@@ -181,50 +193,68 @@ bool TreeView::onMouseDown(const Core::MouseButtonPressEvent& event) {
                 }
             }
             selectNode(nodePtr);
+            return true;
         }
     }
-    return true;
+    return false;
 }
 
 bool TreeView::onScroll(const Core::ScrollEvent& event) {
     int delta = event.yOffset > 0 ? -30 : 30;
-    scrollOffset_ += delta;
-    scrollOffset_ = std::max(0, scrollOffset_);
-    scrollOffset_ = std::min(scrollOffset_, 
-                              static_cast<int>(visibleNodes_.size() * rowHeight_) - 
-                              static_cast<int>(bounds_.height));
+    int maxScroll = std::max(0, static_cast<int>(visibleNodes_.size() * rowHeight_) -
+                                static_cast<int>(bounds_.height));
+    scrollOffset_ = std::clamp(scrollOffset_ + delta, 0, maxScroll);
     return true;
 }
 
 bool TreeView::onKeyDown(const Core::KeyPressEvent& event) {
     if (!selectedNode_) return false;
-    
+
+    auto findVisibleIndex = [&]() -> int {
+        for (size_t i = 0; i < visibleNodes_.size(); ++i) {
+            if (visibleNodes_[i] == selectedNode_.get()) return static_cast<int>(i);
+        }
+        return -1;
+    };
+
     switch (event.keyCode) {
-        case 38: // Up arrow
-            // Select previous visible node
+        case 38: { // Up arrow
+            int idx = findVisibleIndex();
+            if (idx > 0) {
+                selectNode(visibleNodes_[idx - 1]->shared_from_this());
+                return true;
+            }
             break;
-        case 40: // Down arrow
-            // Select next visible node
+        }
+        case 40: { // Down arrow
+            int idx = findVisibleIndex();
+            if (idx >= 0 && idx + 1 < static_cast<int>(visibleNodes_.size())) {
+                selectNode(visibleNodes_[idx + 1]->shared_from_this());
+                return true;
+            }
             break;
+        }
         case 37: // Left arrow
             if (selectedNode_->data.expanded) {
                 collapseNode(selectedNode_);
             } else if (selectedNode_->parent) {
-                selectNode(std::shared_ptr<TreeNode>(selectedNode_->parent, [](TreeNode*){}));
+                selectNode(selectedNode_->parent->shared_from_this());
             }
-            break;
+            return true;
         case 39: // Right arrow
             if (selectedNode_->data.hasChildren && !selectedNode_->data.expanded) {
                 expandNode(selectedNode_);
+                return true;
             }
             break;
         case 13: // Enter
             if (onNodeDoubleClicked) {
                 onNodeDoubleClicked(selectedNode_);
+                return true;
             }
             break;
     }
-    
+
     return false;
 }
 

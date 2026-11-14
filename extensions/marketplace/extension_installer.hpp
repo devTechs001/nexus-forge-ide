@@ -1,26 +1,13 @@
 // extensions/marketplace/extension_installer.hpp
 #pragma once
 
+#include "marketplace_client.hpp"
 #include <string>
 #include <vector>
 #include <functional>
 #include <memory>
 
 namespace NexusForge::Extensions {
-
-// Extension package info
-struct ExtensionPackage {
-    std::string id;
-    std::string name;
-    std::string version;
-    std::string publisher;
-    std::string description;
-    std::string downloadUrl;
-    std::string sha256;
-    size_t size = 0;
-    std::vector<std::string> platforms;
-    std::vector<std::string> engineVersions;
-};
 
 // Installation result
 enum class InstallResult {
@@ -85,42 +72,6 @@ private:
     bool installDependencies(const std::vector<std::string>& dependencies);
     void notifyProgress(float progress, const std::string& message);
     void notifyStatus(const std::string& status);
-};
-
-// Marketplace client
-class MarketplaceClient {
-public:
-    MarketplaceClient();
-    ~MarketplaceClient();
-
-    // Search
-    std::vector<ExtensionPackage> search(const std::string& query,
-                                          const std::vector<std::string>& categories = {});
-
-    // Browse
-    std::vector<ExtensionPackage> getPopular(int count = 20);
-    std::vector<ExtensionPackage> getTrending(int count = 20);
-    std::vector<ExtensionPackage> getNew(int count = 20);
-    std::vector<ExtensionPackage> getByCategory(const std::string& category);
-    std::vector<ExtensionPackage> getByPublisher(const std::string& publisher);
-
-    // Details
-    ExtensionPackage getDetails(const std::string& extensionId);
-    std::string getReadme(const std::string& extensionId);
-    std::vector<std::string> getVersions(const std::string& extensionId);
-
-    // Download
-    std::string getDownloadUrl(const std::string& extensionId, const std::string& version = "");
-
-    // Configuration
-    void setApiEndpoint(const std::string& url);
-    void setApiKey(const std::string& key);
-
-private:
-    std::string apiEndpoint_;
-    std::string apiKey_;
-
-    std::vector<ExtensionPackage> fetchExtensions(const std::string& url);
 };
 
 } // namespace NexusForge::Extensions

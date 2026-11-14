@@ -5,8 +5,10 @@
 
 #ifdef NEXUS_PLATFORM_IOS
 
+#ifdef __OBJC__
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#endif
 #include <unistd.h>
 #include <sys/stat.h>
 

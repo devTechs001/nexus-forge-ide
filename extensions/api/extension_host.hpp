@@ -2,6 +2,7 @@
 #pragma once
 
 #include "extension_api.hpp"
+#include "ipc_channel.hpp"
 #include "../../core/engine/nexus_core.hpp"
 
 #include <memory>
@@ -22,82 +23,6 @@ struct ExtensionRuntime {
     bool enabled = true;
     std::string errorMessage;
     std::unique_ptr<ExtensionContext> context;
-};
-
-// IPC message types
-enum class IPCMessageType {
-    // Extension -> Host
-    RegisterCommand,
-    RegisterLanguage,
-    RegisterTheme,
-    RegisterView,
-    ShowMessage,
-    CreateOutputChannel,
-    AppendToOutput,
-    ShowOutput,
-    SetStatusBarMessage,
-    CreateStatusBarItem,
-    UpdateStatusBarItem,
-    RegisterFileSystemWatcher,
-    DisposeWatcher,
-    FindFiles,
-    TextSearch,
-    ReadFile,
-    WriteFile,
-    DeleteFile,
-    RenameFile,
-    CreateDirectory,
-    GetConfiguration,
-    UpdateConfiguration,
-    ExecuteCommand,
-    RegisterTextEditorCommand,
-    ShowQuickPick,
-    ShowInputBox,
-    ShowOpenDialog,
-    ShowSaveDialog,
-    ShowWorkspaceFolderPick,
-    CreateWebviewPanel,
-    CreateTerminal,
-    SendTelemetry,
-    Log,
-    GetExtensionRuntimeInfo,
-
-    // Host -> Extension
-    Activate,
-    Deactivate,
-    CommandExecuted,
-    FileSystemEvent,
-    ConfigurationChanged,
-    ViewVisibilityChanged,
-    WebviewMessage,
-    TerminalOutput,
-    RequestShutdown
-};
-
-// IPC message
-struct IPCMessage {
-    IPCMessageType type;
-    std::string sourceId;
-    std::string targetId;
-    std::string payload;  // JSON-encoded
-    int requestId = 0;
-    bool success = true;
-};
-
-// IPC channel interface
-class IPCChannel {
-public:
-    virtual ~IPCChannel() = default;
-
-    virtual bool connect() = 0;
-    virtual void disconnect() = 0;
-    virtual bool sendMessage(const IPCMessage& message) = 0;
-    virtual void setCallback(std::function<void(const IPCMessage&)> callback) = 0;
-
-    bool isConnected() const { return connected_; }
-
-protected:
-    bool connected_ = false;
 };
 
 // Extension host process manager

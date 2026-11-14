@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../models/model_manager.hpp"
+#include "ai_chat.hpp"
 #include "../../editor/buffer/text_buffer.hpp"
 
 #include <memory>
@@ -110,6 +111,7 @@ private:
 
     std::atomic<bool> requestPending_{false};
     std::atomic<uint64_t> requestId_{0};
+    std::shared_ptr<std::atomic<bool>> alive_ = std::make_shared<std::atomic<bool>>(true);
     std::chrono::steady_clock::time_point lastRequestTime_;
 
     std::mutex suggestionMutex_;
@@ -129,57 +131,6 @@ private:
                             const CompletionContext& context);
     float calculateConfidence(const CompletionResult& result,
                               const CompletionContext& context);
-};
-
-// AI Chat Assistant
-class AIChatAssistant {
-public:
-    AIChatAssistant(ModelManager* modelManager);
-    ~AIChatAssistant();
-
-    // Conversation management
-    void startNewConversation();
-    void clearConversation();
-    std::string getConversationId() const { return conversationId_; }
-
-    // Messages
-    void sendMessage(const std::string& message);
-    void sendMessageWithCode(const std::string& message,
-                             const std::string& code,
-                             const std::string& language);
-    void sendMessageWithContext(const std::string& message,
-                                const std::vector<std::string>& filePaths);
-
-    // Streaming
-    void streamMessage(const std::string& message, StreamCallback callback);
-    void cancelStream();
-
-    // History
-    const std::vector<ChatMessage>& getHistory() const { return history_; }
-    void loadHistory(const std::vector<ChatMessage>& history);
-
-    // Specialized commands
-    void explainCode(const std::string& code, const std::string& language);
-    void fixCode(const std::string& code, const std::string& language,
-                 const std::string& error);
-    void improveCode(const std::string& code, const std::string& language);
-    void askAboutCode(const std::string& question,
-                      const std::string& code,
-                      const std::string& language);
-
-    // Events
-    std::function<void(const std::string& response, bool done)> onResponse;
-    std::function<void(const std::string& error)> onError;
-
-private:
-    ModelManager* modelManager_;
-    std::string conversationId_;
-    std::vector<ChatMessage> history_;
-    std::string systemPrompt_;
-    std::atomic<bool> streaming_{false};
-
-    void buildSystemPrompt();
-    std::string formatCodeBlock(const std::string& code, const std::string& language);
 };
 
 } // namespace NexusForge::AI

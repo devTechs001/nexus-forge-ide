@@ -47,26 +47,26 @@ void SettingsScreen::createCategoriesList() {
 void SettingsScreen::createSettingsContent() {
     // Create editor settings
     editorSettings_ = {
-        {"fontFamily", "Font Family", "JetBrains Mono", SettingType::String},
-        {"fontSize", "Font Size", "14", SettingType::Number},
-        {"lineHeight", "Line Height", "1.5", SettingType::Number},
-        {"tabSize", "Tab Size", "4", SettingType::Number},
-        {"insertSpaces", "Insert Spaces", "true", SettingType::Boolean},
-        {"wordWrap", "Word Wrap", "off", SettingType::Enum},
-        {"minimap", "Show Minimap", "true", SettingType::Boolean},
-        {"lineNumbers", "Line Numbers", "on", SettingType::Enum},
-        {"bracketPairColorization", "Bracket Pair Colorization", "true", SettingType::Boolean},
-        {"formatOnSave", "Format On Save", "false", SettingType::Boolean},
-        {"autoSave", "Auto Save", "off", SettingType::Enum},
+        {"fontFamily", "Font Family", "JetBrains Mono", SettingType::String, {}, "", "JetBrains Mono"},
+        {"fontSize", "Font Size", "14", SettingType::Number, {}, "", "14"},
+        {"lineHeight", "Line Height", "1.5", SettingType::Number, {}, "", "1.5"},
+        {"tabSize", "Tab Size", "4", SettingType::Number, {}, "", "4"},
+        {"insertSpaces", "Insert Spaces", "true", SettingType::Boolean, {}, "", "true"},
+        {"wordWrap", "Word Wrap", "off", SettingType::Enum, {"off", "on"}, "", "off"},
+        {"minimap", "Show Minimap", "true", SettingType::Boolean, {}, "", "true"},
+        {"lineNumbers", "Line Numbers", "on", SettingType::Enum, {"on", "off", "relative"}, "", "on"},
+        {"bracketPairColorization", "Bracket Pair Colorization", "true", SettingType::Boolean, {}, "", "true"},
+        {"formatOnSave", "Format On Save", "false", SettingType::Boolean, {}, "", "false"},
+        {"autoSave", "Auto Save", "off", SettingType::Enum, {"off", "afterDelay", "onFocusChange"}, "", "off"},
     };
-    
+
     // Create appearance settings
     appearanceSettings_ = {
-        {"theme", "Color Theme", "NexusForge Dark", SettingType::Enum},
-        {"iconTheme", "Icon Theme", "nexusforge-icons", SettingType::Enum},
-        {"activityBarLocation", "Activity Bar Location", "left", SettingType::Enum},
-        {"panelLocation", "Panel Location", "bottom", SettingType::Enum},
-        {"fontSize", "Window Zoom", "100%", SettingType::Number},
+        {"theme", "Color Theme", "NexusForge Dark", SettingType::Enum, {"NexusForge Dark", "NexusForge Light"}, "", "NexusForge Dark"},
+        {"iconTheme", "Icon Theme", "nexusforge-icons", SettingType::Enum, {"nexusforge-icons"}, "", "nexusforge-icons"},
+        {"activityBarLocation", "Activity Bar Location", "left", SettingType::Enum, {"left", "right"}, "", "left"},
+        {"panelLocation", "Panel Location", "bottom", SettingType::Enum, {"bottom", "right"}, "", "bottom"},
+        {"windowZoom", "Window Zoom", "100%", SettingType::Number, {}, "", "100%"},
     };
 }
 
@@ -192,7 +192,7 @@ void SettingsScreen::drawSettingsContent(RenderEngine& renderer, const Rect& rec
 
 bool SettingsScreen::onMouseDown(const Core::MouseButtonPressEvent& event) {
     if (!visible_) return false;
-    
+
     // Handle category selection
     float y = bounds_.y + 60;
     for (const auto& cat : categories_) {
@@ -203,8 +203,45 @@ bool SettingsScreen::onMouseDown(const Core::MouseButtonPressEvent& event) {
         }
         y += 36;
     }
-    
+
+    // Save button
+    float footerBtnY = bounds_.y + bounds_.height - 40;
+    if (event.y >= footerBtnY && event.y < footerBtnY + 30) {
+        if (event.x >= bounds_.x + bounds_.width - 220 &&
+            event.x < bounds_.x + bounds_.width - 120) {
+            saveSettings();
+            return true;
+        }
+        // Cancel button
+        if (event.x >= bounds_.x + bounds_.width - 110 &&
+            event.x < bounds_.x + bounds_.width - 20) {
+            hide();
+            return true;
+        }
+    }
+
     return false;
+}
+
+void SettingsScreen::drawStringSetting(RenderEngine& renderer, float x, float y, const SettingInfo& setting) {
+    renderer.drawText(setting.name, x, y, Color(0.9f, 0.9f, 0.9f), "default", 14);
+    renderer.drawRoundedRect(Rect(x + 200, y - 10, 200, 24), Color(0.15f, 0.15f, 0.18f), 4);
+    renderer.drawText(setting.value, x + 210, y, Color(0.7f, 0.7f, 0.75f), "default", 14);
+}
+
+void SettingsScreen::drawNumberSetting(RenderEngine& renderer, float x, float y, const SettingInfo& setting) {
+    drawStringSetting(renderer, x, y, setting);
+}
+
+void SettingsScreen::drawBooleanSetting(RenderEngine& renderer, float x, float y, const SettingInfo& setting) {
+    renderer.drawText(setting.name, x, y, Color(0.9f, 0.9f, 0.9f), "default", 14);
+    bool checked = (setting.value == "true");
+    renderer.drawRoundedRect(Rect(x + 200, y - 8, 20, 20),
+                             checked ? Color(0.25f, 0.5f, 0.85f) : Color(0.15f, 0.15f, 0.18f), 4);
+}
+
+void SettingsScreen::drawEnumSetting(RenderEngine& renderer, float x, float y, const SettingInfo& setting) {
+    drawStringSetting(renderer, x, y, setting);
 }
 
 } // namespace NexusForge::UI

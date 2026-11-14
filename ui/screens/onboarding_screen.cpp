@@ -21,6 +21,8 @@ bool OnboardingScreen::initialize(Core::NexusEngine* engine, Config::SettingsMan
 }
 
 void OnboardingScreen::createSteps() {
+    steps_.clear();
+
     // Step 1: Welcome
     OnboardingStep welcome;
     welcome.title = "Welcome to NexusForge IDE";
@@ -160,58 +162,66 @@ void OnboardingScreen::completeOnboarding() {
 }
 
 void OnboardingScreen::render(RenderEngine& renderer) {
-    if (!visible_ || currentStep_ >= static_cast<int>(steps_.size())) return;
-    
+    if (!visible_ || steps_.empty() ||
+        currentStep_ < 0 || currentStep_ >= static_cast<int>(steps_.size())) {
+        return;
+    }
+
     const Rect& bounds = getBounds();
-    
+
     // Draw background
-    renderer.drawGradientRect(bounds, 
+    renderer.drawGradientRect(bounds,
                              Color(0.1f, 0.1f, 0.14f),
                              Color(0.08f, 0.08f, 0.1f));
-    
-    const OnboardingStep& step = steps_[currentStep_];
-    
+
+    renderStep(renderer, steps_[currentStep_]);
+
+    // Draw progress indicator
+    renderProgress(renderer);
+
+    // Draw navigation buttons
+    renderButtons(renderer);
+}
+
+void OnboardingScreen::renderStep(RenderEngine& renderer, const OnboardingStep& step) {
+    const Rect& bounds = getBounds();
+
     // Draw icon
     float iconSize = 80;
     float iconX = bounds.x + (bounds.width - iconSize) / 2;
     float iconY = bounds.y + 40;
     renderer.drawText(step.icon, iconX, iconY + iconSize - 10, Color(1, 1, 1), "default", 60);
-    
+
     // Draw title
     float titleY = iconY + iconSize + 20;
     Vec2 titleSize = renderer.measureText(step.title, "default", 28);
     renderer.drawText(step.title, bounds.x + (bounds.width - titleSize.x) / 2, titleY,
                      Color(1, 1, 1), "default", 28);
-    
+
     // Draw description
     float descY = titleY + 40;
     Vec2 descSize = renderer.measureText(step.description, "default", 16);
     renderer.drawText(step.description, bounds.x + (bounds.width - descSize.x) / 2, descY,
                      Color(0.7f, 0.7f, 0.75f), "default", 16);
-    
+
     // Draw features list
     float featuresY = descY + 40;
     float featureX = bounds.x + 100;
-    
+
     for (const auto& feature : step.features) {
         renderer.drawText("•", featureX, featuresY, Color(0.4f, 0.6f, 1.0f), "default", 16);
         renderer.drawText(feature, featureX + 20, featuresY, Color(0.8f, 0.8f, 0.85f), "default", 14);
         featuresY += 28;
     }
-    
-    // Draw progress indicator
-    renderProgress(renderer);
-    
-    // Draw navigation buttons
-    renderButtons(renderer);
 }
 
 void OnboardingScreen::renderProgress(RenderEngine& renderer) {
+    if (steps_.empty()) return;
     const Rect& bounds = getBounds();
     float progressY = bounds.y + bounds.height - 120;
-    
+
     // Draw step indicators
-    float totalWidth = static_cast<float>(steps_.size()) * 12 + (steps_.size() - 1) * 6;
+    float totalWidth = static_cast<float>(steps_.size()) * 12 + static_cast<float>(steps_.size() - 1) * 6;
     float startX = bounds.x + (bounds.width - totalWidth) / 2;
     
     for (size_t i = 0; i < steps_.size(); ++i) {

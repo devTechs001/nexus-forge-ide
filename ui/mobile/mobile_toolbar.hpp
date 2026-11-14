@@ -87,9 +87,6 @@ private:
     bool backButtonHovered_ = false;
     bool menuButtonHovered_ = false;
     bool searchButtonHovered_ = false;
-
-    // Style
-    WidgetStyle style_;
 };
 
 } // namespace NexusForge::UI::Mobile

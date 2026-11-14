@@ -4,11 +4,13 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <chrono>
 
 namespace NexusForge::Terminal {
 
 // Shell type
 enum class ShellType {
+    Unknown,
     Bash,
     Zsh,
     Fish,
@@ -27,9 +29,21 @@ struct DetectedCommand {
     bool succeeded = true;
 };
 
+struct CommandHistoryEntry {
+    std::string command;
+    int exitCode = 0;
+    int durationMs = 0;
+    std::chrono::system_clock::time_point timestamp{};
+    std::string directory;
+};
+
 // Shell integration
 class ShellIntegration {
 public:
+    using CommandStartedCallback = std::function<void(const std::string&)>;
+    using CommandFinishedCallback = std::function<void(const CommandHistoryEntry&)>;
+    using DirectoryChangedCallback = std::function<void(const std::string&)>;
+
     ShellIntegration();
     ~ShellIntegration();
 
@@ -37,9 +51,25 @@ public:
     bool initialize(ShellType shell);
     void shutdown();
 
+    // Script generation
+    std::string generateIntegrationScript(ShellType shellType);
+    std::string generateBashScript();
+    std::string generateZshScript();
+    std::string generateFishScript();
+    std::string generatePowerShellScript();
+
     // Shell type
     ShellType getShellType() const { return shellType_; }
     std::string getShellName() const;
+
+    // Lifecycle hooks
+    void onCommandStarted(const std::string& command);
+    void onCommandFinished(int exitCode, int durationMs);
+    void onDirectoryChanged(const std::string& directory);
+
+    void setOutputCallback(CommandStartedCallback callback);
+    void setCommandFinishedCallback(CommandFinishedCallback callback);
+    void setDirectoryChangedCallback(DirectoryChangedCallback callback);
 
     // Output parsing
     DetectedCommand parseCommand(const std::string& output);
@@ -50,9 +80,14 @@ public:
     bool isPrompt(const std::string& line) const;
     std::string getPromptPattern() const;
 
-    // Command suggestions
+    // Command history & suggestions
+    const std::vector<CommandHistoryEntry>& getCommandHistory() const;
+    std::vector<CommandHistoryEntry> searchHistory(const std::string& query) const;
+    std::vector<CommandHistoryEntry> getRecentCommands(size_t count) const;
+    void clearHistory();
+    bool saveHistory(const std::string& filePath) const;
+    bool loadHistory(const std::string& filePath);
     std::vector<std::string> getSuggestions(const std::string& prefix);
-    std::vector<std::string> getCommandHistory();
 
     // OSC 7 (file URLs)
     std::string createFileUrl(const std::string& path);
@@ -62,10 +97,22 @@ public:
     std::string createCurrentDirOsc(const std::string& path);
     std::string createPromptMarkOsc();
 
+    // Static helpers
+    static ShellType detectShell(const std::string& shellPath);
+    static std::string getDefaultShell();
+
 private:
-    ShellType shellType_ = ShellType::Bash;
+    ShellType shellType_ = ShellType::Unknown;
     std::string promptPattern_;
-    std::vector<std::string> commandHistory_;
+    std::string currentCommand_;
+    std::string currentDirectory_;
+    std::chrono::steady_clock::time_point commandStartTime_{};
+    std::vector<CommandHistoryEntry> commandHistory_;
+    size_t maxHistorySize_ = 10000;
+
+    CommandStartedCallback onCommandStartedCallback;
+    CommandFinishedCallback onCommandFinishedCallback;
+    DirectoryChangedCallback onDirectoryChangedCallback;
 
     void setupBash();
     void setupZsh();

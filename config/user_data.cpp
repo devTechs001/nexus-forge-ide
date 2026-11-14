@@ -23,7 +23,10 @@ UserDataPaths& UserDataPaths::getInstance() {
 
 std::string UserDataPaths::getAppData() const { return nexusData_; }
 std::string UserDataPaths::getUserData() const { return nexusData_ + "/user"; }
-std::string UserDataPaths::getUserHome() const { return getenv("HOME") ?: "/tmp"; }
+std::string UserDataPaths::getUserHome() const {
+    const char* home = std::getenv("HOME");
+    return home ? home : "/tmp";
+}
 std::string UserDataPaths::getTemp() const { return "/tmp/NexusForge"; }
 std::string UserDataPaths::getNexusDataDir() const { return nexusData_; }
 std::string UserDataPaths::getSettingsDir() const { return nexusData_ + "/settings"; }
@@ -44,13 +47,14 @@ std::string UserDataPaths::getLogFile() const { return nexusData_ + "/logs/outpu
 std::string UserDataPaths::getCrashLogFile() const { return nexusData_ + "/logs/crash.log"; }
 
 void UserDataPaths::ensureDirectories() {
-    std::filesystem::create_directories(nexusData_ + "/settings");
-    std::filesystem::create_directories(nexusData_ + "/extensions");
-    std::filesystem::create_directories(nexusData_ + "/cache");
-    std::filesystem::create_directories(nexusData_ + "/logs");
-    std::filesystem::create_directories(nexusData_ + "/sessions");
-    std::filesystem::create_directories(nexusData_ + "/snippets");
-    std::filesystem::create_directories(nexusData_ + "/keybindings");
+    std::error_code ec;
+    std::filesystem::create_directories(nexusData_ + "/settings", ec);
+    std::filesystem::create_directories(nexusData_ + "/extensions", ec);
+    std::filesystem::create_directories(nexusData_ + "/cache", ec);
+    std::filesystem::create_directories(nexusData_ + "/logs", ec);
+    std::filesystem::create_directories(nexusData_ + "/sessions", ec);
+    std::filesystem::create_directories(nexusData_ + "/snippets", ec);
+    std::filesystem::create_directories(nexusData_ + "/keybindings", ec);
 }
 
 // UserDataManager

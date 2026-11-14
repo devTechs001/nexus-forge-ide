@@ -41,8 +41,9 @@ public class NexusJNIBridge extends NativeActivity {
         nativeSetAssetManager(getAssets());
 
         // Pass data paths
-        String internalPath = getFilesDir().getAbsolutePath();
-        String externalPath = getExternalFilesDir(null).getAbsolutePath();
+        String internalPath = getFilesDir() != null ? getFilesDir().getAbsolutePath() : "";
+        java.io.File externalDir = getExternalFilesDir(null);
+        String externalPath = externalDir != null ? externalDir.getAbsolutePath() : internalPath;
         nativeSetDataPath(internalPath, externalPath);
 
         // Initialize native code
@@ -106,14 +107,17 @@ public class NexusJNIBridge extends NativeActivity {
         info.screenHeight = decorView.getHeight();
         info.density = getResources().getDisplayMetrics().density;
         
-        // Safe area insets (API 29+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            android.graphics.Insets insets = decorView.getRootWindowInsets()
-                .getInsets(android.view.WindowInsets.Type.systemBars());
-            info.safeAreaTop = insets.top;
-            info.safeAreaBottom = insets.bottom;
-            info.safeAreaLeft = insets.left;
-            info.safeAreaRight = insets.right;
+        // Safe area insets (WindowInsets.Type.systemBars() requires API 30 / Android R+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsets rootInsets = decorView.getRootWindowInsets();
+            if (rootInsets != null) {
+                android.graphics.Insets insets = rootInsets.getInsets(
+                    android.view.WindowInsets.Type.systemBars());
+                info.safeAreaTop = insets.top;
+                info.safeAreaBottom = insets.bottom;
+                info.safeAreaLeft = insets.left;
+                info.safeAreaRight = insets.right;
+            }
         }
         
         return info;

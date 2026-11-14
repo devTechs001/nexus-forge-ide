@@ -1,6 +1,7 @@
 // core/engine/workspace_manager.hpp
 #pragma once
 
+#include "../../workspace/file_watcher.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -19,27 +20,6 @@ struct WorkspaceInfo {
     std::vector<std::string> folders;
     std::vector<std::string> recentFiles;
     uint64_t lastOpened = 0;
-};
-
-// File system watcher
-class FileSystemWatcher {
-public:
-    FileSystemWatcher();
-    ~FileSystemWatcher();
-
-    bool initialize();
-    void shutdown();
-
-    void addWatch(const std::string& path);
-    void removeWatch(const std::string& path);
-    void update();
-
-    using Callback = std::function<void(const std::string& path, int changeType)>;
-    void setCallback(Callback callback);
-
-private:
-    std::vector<std::string> watchedPaths_;
-    Callback callback_;
 };
 
 // Workspace Manager

@@ -49,16 +49,19 @@ void AIChatAssistant::sendMessage(const std::string& message) {
     
     // Send request
     streaming_ = true;
-    
-    modelManager_->chatStream(request, [this](const std::string& chunk, bool done) {
+    auto accumulated = std::make_shared<std::string>();
+
+    modelManager_->chatStream(request, [this, accumulated](const std::string& chunk, bool done) {
+        *accumulated += chunk;
         if (onResponse) {
             onResponse(chunk, done);
         }
-        
+
         if (done) {
             streaming_ = false;
-            // Add assistant response to history
-            // (would need to accumulate chunks)
+            if (!accumulated->empty()) {
+                history_.push_back(ChatMessage::assistant(*accumulated));
+            }
         }
     });
 }
@@ -101,12 +104,17 @@ void AIChatAssistant::streamMessage(const std::string& message, StreamCallback c
     request.stream = true;
     
     streaming_ = true;
-    
-    modelManager_->chatStream(request, [this, callback](const std::string& chunk, bool done) {
+    auto accumulated = std::make_shared<std::string>();
+
+    modelManager_->chatStream(request, [this, callback, accumulated](const std::string& chunk, bool done) {
+        *accumulated += chunk;
         callback(chunk, done);
-        
+
         if (done) {
             streaming_ = false;
+            if (!accumulated->empty()) {
+                history_.push_back(ChatMessage::assistant(*accumulated));
+            }
         }
     });
 }

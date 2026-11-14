@@ -1,62 +1,16 @@
 // editor/intellisense/completion_provider.hpp
 #pragma once
 
+#include "lsp_client.hpp"
+#include "../buffer/text_buffer.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <functional>
 #include <memory>
+#include <chrono>
 
 namespace NexusForge::Editor {
-
-// Completion item kinds
-enum class CompletionKind {
-    Text,
-    Method,
-    Function,
-    Constructor,
-    Field,
-    Variable,
-    Class,
-    Interface,
-    Module,
-    Property,
-    Unit,
-    Value,
-    Enum,
-    Keyword,
-    Snippet,
-    Color,
-    File,
-    Reference,
-    Folder,
-    EnumMember,
-    Constant,
-    Struct,
-    Event,
-    Operator,
-    TypeParameter
-};
-
-// Completion item
-struct CompletionItem {
-    std::string label;
-    CompletionKind kind = CompletionKind::Text;
-    std::string detail;
-    std::string documentation;
-    std::string sortText;
-    std::string filterText;
-    std::string insertText;
-    int insertTextFormat = 1;  // 1 = plain, 2 = snippet
-    std::string command;
-    bool deprecated = false;
-    bool preselect = false;
-    std::vector<std::string> commitCharacters;
-    
-    // Additional data
-    std::string language;
-    std::string scope;
-};
 
 // Completion context
 struct CompletionContext {
@@ -198,11 +152,54 @@ private:
 class CompletionResolver {
 public:
     using ResolveCallback = std::function<void(CompletionItem)>;
-    
+
     void resolve(CompletionItem& item, ResolveCallback callback);
-    
+
 private:
     // Resolve additional details for completion item
+};
+
+// Integrated CompletionProvider (LSP + language keywords + snippets)
+class CompletionProvider {
+public:
+    CompletionProvider();
+    ~CompletionProvider();
+
+    void setLSPClient(LSPClient* client);
+    void setLanguage(const std::string& languageId);
+    void loadLanguageKeywords(const std::string& languageId);
+    void loadSnippets();
+
+    void triggerCompletion(const std::string& documentUri,
+                           size_t line, size_t column,
+                           const std::string& prefix);
+
+    const std::vector<CompletionItem>& getCompletions() const;
+    void resolveCompletion(CompletionItem& item);
+    void insertCompletion(CompletionItem& item, TextBuffer* buffer,
+                          size_t line, size_t column);
+
+    std::vector<std::string> getTriggerCharacters() const;
+    bool shouldAutoTrigger(char c) const;
+    void cancel();
+    bool hasCompletions() const;
+    size_t getCompletionCount() const;
+
+    std::function<void(const std::vector<CompletionItem>&)> onCompletionReady;
+
+private:
+    LSPClient* lspClient_ = nullptr;
+    std::string languageId_;
+    std::string currentPrefix_;
+    int triggerCharDelay_ = 300;
+    std::chrono::steady_clock::time_point lastTriggerTime_{};
+    std::vector<std::string> keywords_;
+    std::unordered_map<std::string, std::vector<std::string>> snippets_;
+    std::vector<CompletionItem> currentCompletions_;
+
+    void addLocalSymbols(const std::string& documentUri,
+                         std::vector<CompletionItem>& items,
+                         const std::string& prefix);
 };
 
 } // namespace NexusForge::Editor

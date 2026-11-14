@@ -1,5 +1,7 @@
 // ui/renderer/texture_manager.cpp
 #include "texture_manager.hpp"
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace NexusForge::UI {
@@ -18,35 +20,46 @@ void TextureManager::shutdown() {
     unloadAllTextures();
 }
 
-TextureHandle TextureManager::createTexture(int width, int height, const void* data, 
+TextureHandle TextureManager::createTexture(int width, int height, const void* data,
                                              bool generateMipmaps) {
+    (void)data;
+    (void)generateMipmaps;
+    if (width <= 0 || height <= 0) return 0;
+
     auto info = std::make_unique<TextureInfo>();
     info->handle = nextHandle_;
     info->width = width;
     info->height = height;
     info->loaded = true;
-    
+    info->hasAlpha = true;
+
     textures_[nextHandle_] = std::move(info);
-    memoryUsage_ += width * height * 4; // RGBA
-    
+    memoryUsage_ += static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+
     return nextHandle_++;
 }
 
-TextureHandle TextureManager::createTextureFromColor(int width, int height, 
+TextureHandle TextureManager::createTextureFromColor(int width, int height,
                                                       const Color& color) {
-    std::vector<uint8_t> data(width * height * 4);
-    uint8_t r = static_cast<uint8_t>(color.r * 255);
-    uint8_t g = static_cast<uint8_t>(color.g * 255);
-    uint8_t b = static_cast<uint8_t>(color.b * 255);
-    uint8_t a = static_cast<uint8_t>(color.a * 255);
-    
-    for (int i = 0; i < width * height * 4; i += 4) {
+    if (width <= 0 || height <= 0) return 0;
+
+    auto toByte = [](float v) -> uint8_t {
+        return static_cast<uint8_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f));
+    };
+    size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+    std::vector<uint8_t> data(pixelCount * 4);
+    uint8_t r = toByte(color.r);
+    uint8_t g = toByte(color.g);
+    uint8_t b = toByte(color.b);
+    uint8_t a = toByte(color.a);
+
+    for (size_t i = 0; i < pixelCount * 4; i += 4) {
         data[i] = r;
         data[i + 1] = g;
         data[i + 2] = b;
         data[i + 3] = a;
     }
-    
+
     return createTexture(width, height, data.data());
 }
 
@@ -86,8 +99,11 @@ void TextureManager::destroyTexture(TextureHandle handle) {
     auto it = textures_.find(handle);
     if (it != textures_.end()) {
         if (it->second) {
-            memoryUsage_ -= it->second->width * it->second->height * 4;
-            
+            size_t bytes = static_cast<size_t>(std::max(0, it->second->width)) *
+                           static_cast<size_t>(std::max(0, it->second->height)) * 4;
+            size_t current = memoryUsage_.load();
+            memoryUsage_ = (current >= bytes) ? (current - bytes) : 0;
+
             // Remove from path cache
             if (!it->second->path.empty()) {
                 pathToHandle_.erase(it->second->path);

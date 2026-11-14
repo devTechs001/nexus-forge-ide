@@ -8,40 +8,6 @@
 
 namespace NexusForge::Core {
 
-// FileSystemWatcher implementation
-FileSystemWatcher::FileSystemWatcher() = default;
-
-FileSystemWatcher::~FileSystemWatcher() {
-    shutdown();
-}
-
-bool FileSystemWatcher::initialize() {
-    return true;
-}
-
-void FileSystemWatcher::shutdown() {
-    watchedPaths_.clear();
-}
-
-void FileSystemWatcher::addWatch(const std::string& path) {
-    watchedPaths_.push_back(path);
-}
-
-void FileSystemWatcher::removeWatch(const std::string& path) {
-    watchedPaths_.erase(
-        std::remove(watchedPaths_.begin(), watchedPaths_.end(), path),
-        watchedPaths_.end()
-    );
-}
-
-void FileSystemWatcher::update() {
-    // Placeholder - would check for file changes
-}
-
-void FileSystemWatcher::setCallback(Callback callback) {
-    callback_ = std::move(callback);
-}
-
 // WorkspaceManager implementation
 WorkspaceManager::WorkspaceManager(NexusEngine* engine) : engine_(engine) {}
 
@@ -63,7 +29,8 @@ bool WorkspaceManager::openWorkspace(const std::string& path) {
     rootPath_ = path;
     currentWorkspace_ = std::make_unique<WorkspaceInfo>();
     currentWorkspace_->rootPath = path;
-    currentWorkspace_->name = path.substr(path.rfind('/') + 1);
+    size_t slashPos = path.find_last_of("/\\");
+    currentWorkspace_->name = (slashPos != std::string::npos) ? path.substr(slashPos + 1) : path;
     currentWorkspace_->lastOpened = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();

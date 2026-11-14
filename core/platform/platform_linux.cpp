@@ -64,9 +64,12 @@ DirectoryPaths PlatformAbstraction::getDirectoryPaths() {
     
     const char* home = getenv("HOME");
     if (!home) {
-        home = getpwuid(getuid())->pw_dir;
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_dir) {
+            home = pw->pw_dir;
+        }
     }
-    paths.homeDir = home ? home : "/root";
+    paths.homeDir = home ? home : "/tmp";
     
     paths.dataDir = paths.homeDir + "/.local/share";
     paths.configDir = paths.homeDir + "/.config";
@@ -107,9 +110,11 @@ bool PlatformAbstraction::deleteDirectory(const std::string& path) {
 
 bool PlatformAbstraction::copyFile(const std::string& source, const std::string& dest) {
     std::ifstream src(source, std::ios::binary);
+    if (!src.is_open()) return false;
     std::ofstream dst(dest, std::ios::binary);
+    if (!dst.is_open()) return false;
     dst << src.rdbuf();
-    return true;
+    return dst.good();
 }
 
 bool PlatformAbstraction::moveFile(const std::string& source, const std::string& dest) {
@@ -199,19 +204,25 @@ std::vector<char> PlatformAbstraction::readBinaryFile(const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) return {};
     
-    std::streamsize size = file.tellg();
+    std::streampos pos = file.tellg();
+    if (pos <= 0) return {};
+    std::streamsize size = static_cast<std::streamsize>(pos);
     file.seekg(0, std::ios::beg);
     
-    std::vector<char> buffer(size);
-    file.read(buffer.data(), size);
+    std::vector<char> buffer(static_cast<size_t>(size));
+    if (!file.read(buffer.data(), size)) {
+        buffer.resize(static_cast<size_t>(file.gcount()));
+    }
     return buffer;
 }
 
 bool PlatformAbstraction::writeBinaryFile(const std::string& path, const std::vector<char>& data) {
     std::ofstream file(path, std::ios::binary);
     if (!file.is_open()) return false;
-    file.write(data.data(), data.size());
-    return true;
+    if (!data.empty()) {
+        file.write(data.data(), static_cast<std::streamsize>(data.size()));
+    }
+    return file.good();
 }
 
 int PlatformAbstraction::getCurrentProcessId() {
@@ -227,7 +238,8 @@ ProcessInfo PlatformAbstraction::getCurrentProcessInfo() {
     if (len != -1) {
         path[len] = '\0';
         info.path = path;
-        info.name = path + std::string(path).rfind('/') + 1;
+        size_t slashPos = info.path.rfind('/');
+        info.name = (slashPos != std::string::npos) ? info.path.substr(slashPos + 1) : info.path;
     }
     
     return info;
@@ -383,7 +395,10 @@ std::string PlatformAbstraction::getHostname() {
 std::string PlatformAbstraction::getUserName() {
     const char* user = getenv("USER");
     if (!user) {
-        user = getpwuid(getuid())->pw_name;
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_name) {
+            user = pw->pw_name;
+        }
     }
     return user ? user : "unknown";
 }

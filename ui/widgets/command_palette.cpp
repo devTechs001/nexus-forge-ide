@@ -190,6 +190,14 @@ bool CommandPalette::onKeyDown(const Core::KeyPressEvent& event) {
         case 27: // Escape
             hide();
             return true;
+        case 8: // Backspace
+            if (!searchQuery_.empty()) {
+                searchQuery_.pop_back();
+                filterCommands();
+                selectedIndex_ = 0;
+                scrollOffset_ = 0;
+            }
+            return true;
         case 38: // Up arrow
             selectPrevious();
             return true;
@@ -261,68 +269,72 @@ void CommandPalette::filterCommands() {
 
 int CommandPalette::calculateScore(const CommandItem& command, const std::string& query) {
     int score = 0;
+    auto toLower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
     std::string lowerQuery = query;
     std::string lowerLabel = command.label;
-    
-    // Convert to lowercase for comparison
-    std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), ::tolower);
-    std::transform(lowerLabel.begin(), lowerLabel.end(), lowerLabel.begin(), ::tolower);
-    
+
+    std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), toLower);
+    std::transform(lowerLabel.begin(), lowerLabel.end(), lowerLabel.begin(), toLower);
+
     // Exact match
     if (lowerLabel.find(lowerQuery) != std::string::npos) {
         score += 100;
     }
-    
+
     // Starts with match
     if (lowerLabel.find(lowerQuery) == 0) {
         score += 50;
     }
-    
+
     // Keyword match
     for (const auto& keyword : command.keywords) {
         std::string lowerKeyword = keyword;
-        std::transform(lowerKeyword.begin(), lowerKeyword.end(), lowerKeyword.begin(), ::tolower);
+        std::transform(lowerKeyword.begin(), lowerKeyword.end(), lowerKeyword.begin(), toLower);
         if (lowerKeyword.find(lowerQuery) != std::string::npos) {
             score += 30;
         }
     }
-    
+
     // Category match
     if (!command.category.empty()) {
         std::string lowerCategory = command.category;
-        std::transform(lowerCategory.begin(), lowerCategory.end(), lowerCategory.begin(), ::tolower);
+        std::transform(lowerCategory.begin(), lowerCategory.end(), lowerCategory.begin(), toLower);
         if (lowerCategory.find(lowerQuery) != std::string::npos) {
             score += 20;
         }
     }
-    
+
     return score;
 }
 
 void CommandPalette::executeSelectedCommand() {
     if (selectedIndex_ < filteredCommands_.size()) {
-        const CommandItem& cmd = filteredCommands_[selectedIndex_];
+        CommandItem cmd = filteredCommands_[selectedIndex_];
+        hide();
         if (cmd.action) {
             cmd.action();
         }
         if (onCommandExecuted) {
             onCommandExecuted(cmd);
         }
-        hide();
     }
 }
 
 int CommandPalette::getItemAtPosition(float y) const {
     float itemStartY = bounds_.y + 56;
-    
+
     if (y < itemStartY) return -1;
-    
-    int index = static_cast<int>((y - itemStartY) / ITEM_HEIGHT);
-    
-    if (index >= 0 && index < static_cast<int>(filteredCommands_.size())) {
-        return index + scrollOffset_;
+
+    int visualIndex = static_cast<int>((y - itemStartY) / ITEM_HEIGHT);
+    if (visualIndex < 0 || visualIndex >= static_cast<int>(MAX_VISIBLE_ITEMS)) {
+        return -1;
     }
-    
+
+    int actualIndex = visualIndex + scrollOffset_;
+    if (actualIndex >= 0 && actualIndex < static_cast<int>(filteredCommands_.size())) {
+        return actualIndex;
+    }
+
     return -1;
 }
 

@@ -1,5 +1,7 @@
 // ui/widgets/text_input.cpp
 #include "text_input.hpp"
+#include <algorithm>
+#include <cmath>
 
 namespace NexusForge::UI {
 
@@ -31,9 +33,11 @@ void TextInput::setCursorPos(size_t pos) {
 }
 
 void TextInput::setSelection(size_t start, size_t end) {
-    selectionStart_ = std::min(start, end);
-    selectionEnd_ = std::max(start, end);
-    cursorPos_ = end;
+    size_t clampedStart = std::min(start, text_.length());
+    size_t clampedEnd = std::min(end, text_.length());
+    selectionStart_ = std::min(clampedStart, clampedEnd);
+    selectionEnd_ = std::max(clampedStart, clampedEnd);
+    cursorPos_ = clampedEnd;
     ensureCursorVisible();
 }
 
@@ -143,11 +147,14 @@ bool TextInput::onKeyDown(const Core::KeyPressEvent& event) {
     }
     
     switch (event.keyCode) {
+        case 13: // Enter
+            if (onSubmit) onSubmit(text_);
+            return true;
         case 37: // Left arrow
-            moveCursor(-1, event.modifiers & 1); // Shift for selection
+            moveCursor(-1, (event.modifiers & 1) != 0); // Shift for selection
             return true;
         case 39: // Right arrow
-            moveCursor(1, event.modifiers & 1);
+            moveCursor(1, (event.modifiers & 1) != 0);
             return true;
         case 8: // Backspace
             if (selectionStart_ != selectionEnd_) {
@@ -156,6 +163,7 @@ bool TextInput::onKeyDown(const Core::KeyPressEvent& event) {
                 text_.erase(cursorPos_ - 1, 1);
                 cursorPos_--;
                 selectionStart_ = cursorPos_;
+                selectionEnd_ = cursorPos_;
                 if (onTextChange) onTextChange(text_);
             }
             updateDisplayText();
@@ -192,15 +200,16 @@ bool TextInput::onCharInput(const Core::CharInputEvent& event) {
 }
 
 bool TextInput::onMouseDown(const Core::MouseButtonPressEvent& event) {
+    requestFocus();
     float clickX = event.x - bounds_.x - style_.padding.left;
     cursorPos_ = getPosFromX(clickX + scrollOffset_);
     selectionStart_ = cursorPos_;
     selectionEnd_ = cursorPos_;
-    requestFocus();
     return true;
 }
 
 bool TextInput::onFocusGained() {
+    Widget::onFocusGained();
     cursorBlinkTimer_ = 0;
     cursorVisible_ = true;
     if (selectAllOnFocus_) {
@@ -211,6 +220,7 @@ bool TextInput::onFocusGained() {
 }
 
 bool TextInput::onFocusLost() {
+    Widget::onFocusLost();
     cursorVisible_ = false;
     if (onFocusChanged) onFocusChanged();
     return true;
@@ -303,7 +313,10 @@ float TextInput::getTextOffset(size_t pos) const {
 }
 
 size_t TextInput::getPosFromX(float x) const {
-    return static_cast<size_t>(x / (style_.fontSize * 0.5f));
+    float charWidth = style_.fontSize * 0.5f;
+    if (x <= 0.0f || charWidth <= 0.0f) return 0;
+    size_t pos = static_cast<size_t>(std::round(x / charWidth));
+    return std::min(pos, text_.length());
 }
 
 } // namespace NexusForge::UI

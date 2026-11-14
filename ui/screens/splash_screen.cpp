@@ -55,15 +55,29 @@ void SplashScreen::hide() {
 }
 
 void SplashScreen::close() {
+    bool wasOpen = visible_ || renderer_ != nullptr || nativeWindow_ != nullptr;
     hide();
 
-    if (logoTexture_) renderer_->destroyTexture(logoTexture_);
-    if (backgroundTexture_) renderer_->destroyTexture(backgroundTexture_);
+    if (renderer_) {
+        if (logoTexture_) {
+            renderer_->destroyTexture(logoTexture_);
+            logoTexture_ = 0;
+        }
+        if (backgroundTexture_) {
+            renderer_->destroyTexture(backgroundTexture_);
+            backgroundTexture_ = 0;
+        }
+        renderer_.reset();
+    } else {
+        logoTexture_ = 0;
+        backgroundTexture_ = 0;
+    }
 
-    renderer_.reset();
     destroyNativeWindow();
 
-    if (onClosed) onClosed();
+    if (wasOpen && onClosed) {
+        onClosed();
+    }
 }
 
 void SplashScreen::setProgress(float progress, const std::string& message) {
@@ -161,7 +175,6 @@ void SplashScreen::renderBackground() {
 void SplashScreen::renderLogo() {
     float centerX = 300;
     float centerY = 150;
-    float logoSize = 120 * logoScale_;
 
     renderer_->pushTransform();
     renderer_->translate(centerX, centerY);
@@ -176,7 +189,6 @@ void SplashScreen::renderLogo() {
     } else {
         // Fallback: Draw stylized "NF" logo
         Color primaryColor(0.4f, 0.6f, 1.0f, logoAlpha_);
-        Color secondaryColor(0.6f, 0.4f, 1.0f, logoAlpha_);
 
         // Hexagon shape
         renderer_->beginPath();
@@ -328,11 +340,11 @@ void SplashScreen::spawnParticle() {
 }
 
 // Easing functions
-float easeOutQuad(float t) {
+float SplashScreen::easeOutQuad(float t) {
     return 1 - (1 - t) * (1 - t);
 }
 
-float easeOutBack(float t) {
+float SplashScreen::easeOutBack(float t) {
     const float c1 = 1.70158f;
     const float c3 = c1 + 1;
     return 1 + c3 * std::pow(t - 1, 3) + c1 * std::pow(t - 1, 2);

@@ -9,7 +9,7 @@
 
 namespace NexusForge::Core {
 
-FileSystemWatcher::FileSystemWatcher() : running_(false) {
+FileSystemWatcher::FileSystemWatcher() : running_(false), paused_(false) {
 }
 
 FileSystemWatcher::~FileSystemWatcher() {
@@ -17,34 +17,74 @@ FileSystemWatcher::~FileSystemWatcher() {
 }
 
 bool FileSystemWatcher::initialize() {
-    running_ = true;
-    
+    if (running_.exchange(true)) {
+        return true;
+    }
+
     // Start watch thread
     watchThread_ = std::thread(&FileSystemWatcher::watchLoop, this);
-    
+
     return true;
 }
 
 void FileSystemWatcher::shutdown() {
-    running_ = false;
-    
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        running_.store(false);
+    }
+    cv_.notify_all();
+
     if (watchThread_.joinable()) {
         watchThread_.join();
     }
-    
+
+    std::lock_guard<std::mutex> lock(mutex_);
     watchedPaths_.clear();
     fileCallbacks_.clear();
     directoryWatches_.clear();
 }
 
+void FileSystemWatcher::addWatch(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (watchedPaths_.find(path) == watchedPaths_.end()) {
+        FileState state;
+        state.exists = pathExists(path);
+        if (state.exists) {
+            state.lastModified = getFileModifiedTime(path);
+            state.size = getFileSize(path);
+        }
+        watchedPaths_[path] = state;
+    }
+}
+
 void FileSystemWatcher::addWatch(const std::string& path, WatchCallback callback) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (watchedPaths_.find(path) == watchedPaths_.end()) {
-        watchedPaths_[path] = {};
+        FileState state;
+        state.exists = pathExists(path);
+        if (state.exists) {
+            state.lastModified = getFileModifiedTime(path);
+            state.size = getFileSize(path);
+        }
+        watchedPaths_[path] = state;
     }
-    
-    fileCallbacks_[path].push_back(std::move(callback));
+
+    if (callback) {
+        fileCallbacks_[path].push_back(std::move(callback));
+    }
+}
+
+void FileSystemWatcher::setCallback(Callback callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    globalCallback_ = std::move(callback);
+}
+
+void FileSystemWatcher::update() {
+    if (!paused_.load()) {
+        checkForChanges();
+    }
 }
 
 void FileSystemWatcher::addDirectoryWatch(const std::string& path, DirectoryWatchCallback callback,
@@ -78,10 +118,17 @@ void FileSystemWatcher::removeWatch(const std::string& path) {
 }
 
 void FileSystemWatcher::watchLoop() {
-    while (running_) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        
+    std::unique_lock<std::mutex> lock(mutex_);
+    while (running_.load()) {
+        cv_.wait_for(lock, std::chrono::milliseconds(200), [this]() {
+            return !running_.load();
+        });
+        if (!running_.load()) break;
+        if (paused_.load()) continue;
+
+        lock.unlock();
         checkForChanges();
+        lock.lock();
     }
 }
 
@@ -172,6 +219,9 @@ void FileSystemWatcher::notifyFileChanged(const std::string& path, FileChangeTyp
             }
         }
     }
+    if (globalCallback_) {
+        globalCallback_(path, static_cast<int>(changeType));
+    }
 }
 
 bool FileSystemWatcher::pathExists(const std::string& path) const {
@@ -199,18 +249,20 @@ size_t FileSystemWatcher::getFileSize(const std::string& path) const {
 }
 
 void FileSystemWatcher::pause() {
-    paused_ = true;
+    paused_.store(true);
 }
 
 void FileSystemWatcher::resume() {
-    paused_ = false;
+    paused_.store(false);
+    cv_.notify_all();
 }
 
 bool FileSystemWatcher::isPaused() const {
-    return paused_;
+    return paused_.load();
 }
 
 size_t FileSystemWatcher::getWatchCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return watchedPaths_.size();
 }
 

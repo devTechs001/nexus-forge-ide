@@ -5,8 +5,10 @@
 
 #ifdef NEXUS_PLATFORM_MACOS
 
+#ifdef __OBJC__
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
+#endif
 #include <unistd.h>
 #include <sys/stat.h>
 #include <pwd.h>

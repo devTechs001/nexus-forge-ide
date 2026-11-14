@@ -113,7 +113,6 @@ Vec2 Button::measure(float availableWidth, float availableHeight) {
 
     // Measure text
     if (!text_.empty()) {
-        Vec2 textSize(0, 0); // Would measure text
         float textWidth = static_cast<float>(text_.length()) * style_.fontSize * 0.5f;
         contentWidth += textWidth;
         contentHeight = std::max(contentHeight, style_.fontSize);
@@ -127,11 +126,11 @@ Vec2 Button::measure(float availableWidth, float availableHeight) {
     width += contentWidth;
     height = std::max(height, contentHeight) + 8;
 
-    // Apply constraints
-    width = std::clamp(width, constraints_.minWidth, 
-                       std::min(constraints_.maxWidth, availableWidth));
-    height = std::clamp(height, constraints_.minHeight,
-                        std::min(constraints_.maxHeight, availableHeight));
+    // Apply constraints safely
+    float maxW = std::max(constraints_.minWidth, std::min(constraints_.maxWidth, availableWidth));
+    float maxH = std::max(constraints_.minHeight, std::min(constraints_.maxHeight, availableHeight));
+    width = std::clamp(width, constraints_.minWidth, maxW);
+    height = std::clamp(height, constraints_.minHeight, maxH);
 
     return Vec2(width, height);
 }

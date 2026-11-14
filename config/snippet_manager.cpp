@@ -19,6 +19,9 @@ SnippetManager& SnippetManager::getInstance() {
 }
 
 void SnippetManager::addSnippet(const Snippet& snippet) {
+    if (snippets_.find(snippet.id) != snippets_.end()) {
+        removeSnippet(snippet.id);
+    }
     snippets_[snippet.id] = snippet;
     indexSnippet(snippet);
 }
@@ -98,6 +101,18 @@ std::string SnippetManager::expandVariables(const std::string& body) const {
         while ((pos = result.find(var, pos)) != std::string::npos) {
             result.replace(pos, var.length(), value);
             pos += value.length();
+        }
+    }
+    for (const auto& [name, provider] : variableProviders_) {
+        if (!provider) continue;
+        std::string var = "${" + name + "}";
+        if (result.find(var) != std::string::npos) {
+            std::string value = provider();
+            size_t pos = 0;
+            while ((pos = result.find(var, pos)) != std::string::npos) {
+                result.replace(pos, var.length(), value);
+                pos += value.length();
+            }
         }
     }
     return result;

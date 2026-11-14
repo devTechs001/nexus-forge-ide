@@ -5,8 +5,12 @@
 #include <vector>
 #include <regex>
 #include <functional>
+#include <optional>
+#include <utility>
 
 namespace NexusForge::Editor {
+
+class TextBuffer;
 
 // Search options
 struct SearchOptions {
@@ -15,7 +19,62 @@ struct SearchOptions {
     bool wholeWord = false;
     bool useRegex = false;
     bool matchLines = false;
+    bool searchInSelection = false;
+    bool wrapAround = true;
+    size_t selectionStartLine = 0;
+    size_t selectionEndLine = 0;
     size_t maxResults = 10000;
+};
+
+// Buffer search result
+struct SearchResult {
+    bool found = false;
+    size_t line = 0;
+    size_t startCol = 0;
+    size_t endCol = 0;
+    std::string matchedText;
+};
+
+// Replace result
+struct ReplaceResult {
+    bool success = false;
+    size_t newLine = 0;
+    size_t newCol = 0;
+};
+
+struct ReplaceAllResult {
+    size_t count = 0;
+};
+
+// Buffer-backed search engine
+class SearchEngine {
+public:
+    explicit SearchEngine(TextBuffer* buffer = nullptr);
+    ~SearchEngine();
+
+    void setBuffer(TextBuffer* buffer);
+    std::vector<SearchResult> find(const std::string& pattern, const SearchOptions& options = {});
+    SearchResult findNext(const std::string& pattern, const SearchOptions& options,
+                          size_t currentLine, size_t currentCol);
+    SearchResult findPrevious(const std::string& pattern, const SearchOptions& options,
+                              size_t currentLine, size_t currentCol);
+
+    ReplaceResult replace(const SearchResult& match, const std::string& replacement,
+                          bool useRegex = false);
+    ReplaceAllResult replaceAll(const std::string& pattern, const std::string& replacement,
+                                const SearchOptions& searchOptions = {}, bool useRegex = false);
+    std::vector<SearchResult> findAllInFile(const std::string& filePath,
+                                            const std::string& pattern,
+                                            const SearchOptions& options = {});
+    static bool isValidRegex(const std::string& pattern);
+
+private:
+    TextBuffer* buffer_ = nullptr;
+
+    void findPlain(const std::string& pattern, const SearchOptions& options,
+                   std::vector<SearchResult>& results);
+    void findRegex(const std::string& pattern, const SearchOptions& options,
+                   std::vector<SearchResult>& results);
 };
 
 // Replace options

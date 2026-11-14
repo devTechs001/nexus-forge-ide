@@ -3,10 +3,215 @@
 
 #include "completion_provider.hpp"
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <set>
+#include <sstream>
 
 namespace NexusForge::Editor {
 
+// KeywordCompletionProvider
+void KeywordCompletionProvider::addKeyword(const std::string& keyword, const std::string& detail) {
+    keywords_[keyword] = detail;
+}
+
+void KeywordCompletionProvider::addKeywords(const std::vector<std::string>& keywords) {
+    for (const auto& kw : keywords) keywords_[kw] = "";
+}
+
+void KeywordCompletionProvider::loadKeywordsForLanguage(const std::string& language) {
+    keywords_.clear();
+    if (language == "cpp" || language == "c++") {
+        addKeywords({"auto", "class", "const", "constexpr", "for", "if", "else",
+                     "return", "struct", "template", "typename", "using", "virtual", "void", "while"});
+    } else if (language == "python") {
+        addKeywords({"def", "class", "if", "elif", "else", "for", "while", "import", "from", "return"});
+    }
+}
+
+std::vector<CompletionItem> KeywordCompletionProvider::provideCompletions(const CompletionContext& context) {
+    std::vector<CompletionItem> items;
+    for (const auto& [kw, detail] : keywords_) {
+        if (context.prefix.empty() || kw.find(context.prefix) == 0) {
+            CompletionItem item;
+            item.label = kw;
+            item.kind = CompletionItemKind::Keyword;
+            item.detail = detail;
+            item.insertText = kw;
+            items.push_back(std::move(item));
+        }
+    }
+    return items;
+}
+
+bool KeywordCompletionProvider::shouldTrigger(const CompletionContext& context) {
+    return !context.prefix.empty();
+}
+
+// SnippetCompletionProvider
+void SnippetCompletionProvider::addSnippet(const Snippet& snippet) {
+    snippets_.push_back(snippet);
+}
+
+void SnippetCompletionProvider::loadSnippetsForLanguage(const std::string& language) {
+    (void)language;
+}
+
+std::vector<CompletionItem> SnippetCompletionProvider::provideCompletions(const CompletionContext& context) {
+    std::vector<CompletionItem> items;
+    for (const auto& s : snippets_) {
+        if (context.prefix.empty() || s.prefix.find(context.prefix) == 0) {
+            CompletionItem item;
+            item.label = s.prefix;
+            item.kind = CompletionItemKind::Snippet;
+            item.detail = s.description;
+            item.insertText = s.body;
+            item.insertTextFormat = 2;
+            items.push_back(std::move(item));
+        }
+    }
+    return items;
+}
+
+bool SnippetCompletionProvider::shouldTrigger(const CompletionContext& context) {
+    return !context.prefix.empty();
+}
+
+// WordCompletionProvider
+void WordCompletionProvider::addWord(const std::string& word) {
+    if (!word.empty()) wordFrequency_[word]++;
+}
+
+void WordCompletionProvider::addWords(const std::vector<std::string>& words) {
+    for (const auto& w : words) addWord(w);
+}
+
+void WordCompletionProvider::indexDocument(const std::string& documentId, const std::string& content) {
+    documents_[documentId] = content;
+    std::string word;
+    for (char c : content) {
+        unsigned char uc = static_cast<unsigned char>(c);
+        if (std::isalnum(uc) || uc == '_') {
+            word.push_back(c);
+        } else if (!word.empty()) {
+            wordFrequency_[word]++;
+            word.clear();
+        }
+    }
+    if (!word.empty()) wordFrequency_[word]++;
+}
+
+void WordCompletionProvider::removeDocument(const std::string& documentId) {
+    documents_.erase(documentId);
+}
+
+std::vector<CompletionItem> WordCompletionProvider::provideCompletions(const CompletionContext& context) {
+    std::vector<CompletionItem> items;
+    for (const auto& [word, freq] : wordFrequency_) {
+        (void)freq;
+        if (word != context.prefix && (context.prefix.empty() || word.find(context.prefix) == 0)) {
+            CompletionItem item;
+            item.label = word;
+            item.kind = CompletionItemKind::Text;
+            item.insertText = word;
+            items.push_back(std::move(item));
+        }
+    }
+    return items;
+}
+
+bool WordCompletionProvider::shouldTrigger(const CompletionContext& context) {
+    return !context.prefix.empty();
+}
+
+// PathCompletionProvider
+std::vector<CompletionItem> PathCompletionProvider::provideCompletions(const CompletionContext& context) {
+    std::vector<CompletionItem> items;
+    for (const auto& entry : getDirectoryContents(context.prefix)) {
+        CompletionItem item;
+        item.label = entry;
+        item.kind = CompletionItemKind::File;
+        item.insertText = entry;
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
+bool PathCompletionProvider::shouldTrigger(const CompletionContext& context) {
+    return context.triggerCharacter == '/' || context.prefix.find('/') != std::string::npos;
+}
+
+std::vector<std::string> PathCompletionProvider::getDirectoryContents(const std::string& path) const {
+    std::vector<std::string> entries;
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::is_directory(path, ec)) return entries;
+    for (const auto& e : std::filesystem::directory_iterator(path, ec)) {
+        entries.push_back(e.path().filename().string());
+    }
+    return entries;
+}
+
+// CompletionManager
+CompletionManager::CompletionManager() = default;
+CompletionManager::~CompletionManager() = default;
+
+void CompletionManager::registerProvider(std::shared_ptr<ICompletionProvider> provider) {
+    if (provider) providers_.push_back(std::move(provider));
+}
+
+void CompletionManager::unregisterProvider(const std::string& name) {
+    providers_.erase(std::remove_if(providers_.begin(), providers_.end(),
+        [&](const auto& p) { return p && p->getName() == name; }), providers_.end());
+}
+
+CompletionResult CompletionManager::getCompletions(const CompletionContext& context) {
+    CompletionResult res;
+    if (static_cast<int>(context.prefix.size()) < minPrefixLength_ && !context.isTriggerCharacter) {
+        return res;
+    }
+    std::vector<std::vector<CompletionItem>> batches;
+    for (const auto& p : providers_) {
+        if (p && p->shouldTrigger(context)) {
+            batches.push_back(p->provideCompletions(context));
+        }
+    }
+    res.items = mergeAndSort(batches, context);
+    if (maxCompletions_ > 0 && res.items.size() > static_cast<size_t>(maxCompletions_)) {
+        res.items.resize(static_cast<size_t>(maxCompletions_));
+        res.isIncomplete = true;
+    }
+    return res;
+}
+
+void CompletionManager::setTriggerCharacters(const std::vector<char>& characters) {
+    triggerCharacters_ = characters;
+}
+
+std::vector<CompletionItem> CompletionManager::mergeAndSort(
+    const std::vector<std::vector<CompletionItem>>& results,
+    const CompletionContext& context) {
+    (void)context;
+    std::vector<CompletionItem> merged;
+    for (const auto& batch : results) {
+        merged.insert(merged.end(), batch.begin(), batch.end());
+    }
+    if (sortByRelevance_) {
+        std::sort(merged.begin(), merged.end(), [](const CompletionItem& a, const CompletionItem& b) {
+            return a.label < b.label;
+        });
+    }
+    merged.erase(std::unique(merged.begin(), merged.end(),
+        [](const CompletionItem& a, const CompletionItem& b) { return a.label == b.label; }),
+        merged.end());
+    return merged;
+}
+
+// CompletionResolver
+void CompletionResolver::resolve(CompletionItem& item, ResolveCallback callback) {
+    if (callback) callback(item);
+}
+
+// CompletionProvider
 CompletionProvider::CompletionProvider() : triggerCharDelay_(300) {
 }
 
@@ -96,16 +301,18 @@ void CompletionProvider::triggerCompletion(const std::string& documentUri,
                                             const std::string& prefix) {
     currentPrefix_ = prefix;
     
-    // Debounce
+    // Debounce (skip on first trigger)
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - lastTriggerTime_).count();
-    
-    if (elapsed < triggerCharDelay_) {
-        // Debounce - schedule for later
-        return;
+    if (lastTriggerTime_.time_since_epoch().count() != 0) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - lastTriggerTime_).count();
+
+        if (elapsed < triggerCharDelay_) {
+            // Debounce - schedule for later
+            return;
+        }
     }
-    
+
     lastTriggerTime_ = now;
     
     // Get completions from multiple sources
@@ -194,18 +401,20 @@ void CompletionProvider::resolveCompletion(CompletionItem& item) {
 
 void CompletionProvider::insertCompletion(CompletionItem& item, TextBuffer* buffer,
                                            size_t line, size_t column) {
+    if (!buffer) return;
     std::string insertText = item.insertText.empty() ? item.label : item.insertText;
-    
-    // Calculate range to replace
-    size_t startCol = column - currentPrefix_.length();
-    
+
+    // Calculate range to replace safely without unsigned underflow
+    size_t prefixLen = std::min(column, currentPrefix_.length());
+    size_t startCol = column - prefixLen;
+
     // Delete prefix
-    if (!currentPrefix_.empty() && startCol < column) {
-        buffer->removeText(line, startCol, line, column);
+    if (prefixLen > 0 && startCol < column) {
+        buffer->removeRange(line, startCol, line, column);
     }
-    
+
     // Insert completion
-    buffer->insertText(line, startCol, insertText);
+    buffer->insert(line, startCol, insertText);
 }
 
 std::vector<std::string> CompletionProvider::getTriggerCharacters() const {

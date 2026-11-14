@@ -10,13 +10,69 @@
 
 namespace NexusForge::Extensions {
 
-// IPC message
+// IPC message types (Host <-> Extension)
+enum class IPCMessageType {
+    // Extension -> Host
+    RegisterCommand,
+    RegisterLanguage,
+    RegisterTheme,
+    RegisterView,
+    ShowMessage,
+    CreateOutputChannel,
+    AppendToOutput,
+    ShowOutput,
+    SetStatusBarMessage,
+    CreateStatusBarItem,
+    UpdateStatusBarItem,
+    RegisterFileSystemWatcher,
+    DisposeWatcher,
+    FindFiles,
+    TextSearch,
+    ReadFile,
+    WriteFile,
+    DeleteFile,
+    RenameFile,
+    CreateDirectory,
+    GetConfiguration,
+    UpdateConfiguration,
+    ExecuteCommand,
+    RegisterTextEditorCommand,
+    ShowQuickPick,
+    ShowInputBox,
+    ShowOpenDialog,
+    ShowSaveDialog,
+    ShowWorkspaceFolderPick,
+    CreateWebviewPanel,
+    CreateTerminal,
+    SendTelemetry,
+    Log,
+    GetExtensionRuntimeInfo,
+
+    // Host -> Extension
+    Activate,
+    Deactivate,
+    CommandExecuted,
+    FileSystemEvent,
+    ConfigurationChanged,
+    ViewVisibilityChanged,
+    WebviewMessage,
+    TerminalOutput,
+    RequestShutdown
+};
+
+// Unified IPC message
 struct IPCMessage {
     std::string type;
+    IPCMessageType messageType = IPCMessageType::Log;
     std::string channel;
     std::string data;
+    std::string sourceId;
+    std::string targetId;
+    std::string payload;  // JSON-encoded
     std::string messageId;
     std::string replyTo;
+    int requestId = 0;
+    bool success = true;
     int64_t timestamp = 0;
 };
 
@@ -34,10 +90,17 @@ public:
     // Messaging
     virtual void send(const IPCMessage& message) = 0;
     virtual void send(const std::string& channel, const std::string& data) = 0;
+    virtual bool sendMessage(const IPCMessage& message) {
+        send(message);
+        return isConnected();
+    }
 
     // Receive
     using MessageCallback = std::function<void(const IPCMessage&)>;
     virtual void setMessageCallback(MessageCallback callback) = 0;
+    virtual void setCallback(MessageCallback callback) {
+        setMessageCallback(std::move(callback));
+    }
 
     // Request/Response
     std::string request(const std::string& channel, const std::string& data,

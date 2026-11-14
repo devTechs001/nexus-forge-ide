@@ -186,17 +186,29 @@ void MainWindow::hidePanel() {
 }
 
 void MainWindow::openFile(const std::string& path) {
-    // Create new tab or activate existing
+    // Activate existing tab if already open
+    for (const auto& existing : tabs_) {
+        if (!path.empty() && existing.filePath == path) {
+            setActiveTab(existing.id);
+            updateWindowTitle();
+            return;
+        }
+    }
+
     std::string tabId = generateTabId();
 
     TabInfo tab;
     tab.id = tabId;
     tab.filePath = path;
-    tab.title = path.substr(path.find_last_of("/\\") + 1);
+    size_t sepPos = path.find_last_of("/\\");
+    tab.title = (sepPos != std::string::npos) ? path.substr(sepPos + 1) : path;
+    if (tab.title.empty()) tab.title = "Untitled";
 
-    // Determine language from extension
-    std::string ext = path.substr(path.find_last_of('.') + 1);
-    tab.language = ext;
+    // Determine language from extension safely
+    size_t dotPos = tab.title.find_last_of('.');
+    tab.language = (dotPos != std::string::npos && dotPos + 1 < tab.title.size())
+                       ? tab.title.substr(dotPos + 1)
+                       : "plaintext";
 
     tabs_.push_back(tab);
     activeTabId_ = tabId;
@@ -205,6 +217,24 @@ void MainWindow::openFile(const std::string& path) {
         onFileOpened(path);
     }
 
+    updateWindowTitle();
+}
+
+void MainWindow::openFiles(const std::vector<std::string>& paths) {
+    for (const auto& path : paths) {
+        openFile(path);
+    }
+}
+
+void MainWindow::newFile(const std::string& language) {
+    std::string tabId = generateTabId();
+    TabInfo tab;
+    tab.id = tabId;
+    tab.title = "Untitled";
+    tab.language = language.empty() ? "plaintext" : language;
+    tabs_.push_back(tab);
+    activeTabId_ = tabId;
+    if (onActiveTabChanged) onActiveTabChanged(tabId);
     updateWindowTitle();
 }
 
@@ -223,6 +253,25 @@ void MainWindow::closeTab(const std::string& id) {
         if (onFileClosed) {
             onFileClosed(filePath);
         }
+        updateWindowTitle();
+    }
+}
+
+void MainWindow::closeAllTabs() {
+    while (!tabs_.empty()) {
+        closeTab(tabs_.back().id);
+    }
+}
+
+void MainWindow::closeOtherTabs(const std::string& keepId) {
+    std::vector<std::string> toClose;
+    for (const auto& tab : tabs_) {
+        if (tab.id != keepId && !tab.pinned) {
+            toClose.push_back(tab.id);
+        }
+    }
+    for (const auto& id : toClose) {
+        closeTab(id);
     }
 }
 
@@ -231,6 +280,7 @@ void MainWindow::setActiveTab(const std::string& id) {
     if (onActiveTabChanged) {
         onActiveTabChanged(id);
     }
+    updateWindowTitle();
 }
 
 void MainWindow::nextTab() {
@@ -239,8 +289,8 @@ void MainWindow::nextTab() {
     auto it = std::find_if(tabs_.begin(), tabs_.end(),
         [this](const TabInfo& tab) { return tab.id == activeTabId_; });
 
-    size_t index = (it - tabs_.begin() + 1) % tabs_.size();
-    activeTabId_ = tabs_[index].id;
+    size_t index = (it == tabs_.end()) ? 0 : (static_cast<size_t>(it - tabs_.begin()) + 1) % tabs_.size();
+    setActiveTab(tabs_[index].id);
 }
 
 void MainWindow::previousTab() {
@@ -249,9 +299,75 @@ void MainWindow::previousTab() {
     auto it = std::find_if(tabs_.begin(), tabs_.end(),
         [this](const TabInfo& tab) { return tab.id == activeTabId_; });
 
-    size_t index = (it - tabs_.begin() + tabs_.size() - 1) % tabs_.size();
-    activeTabId_ = tabs_[index].id;
+    size_t index = (it == tabs_.end())
+                       ? (tabs_.size() - 1)
+                       : (static_cast<size_t>(it - tabs_.begin()) + tabs_.size() - 1) % tabs_.size();
+    setActiveTab(tabs_[index].id);
 }
+
+void MainWindow::moveTab(const std::string& id, int newIndex) {
+    if (tabs_.empty()) return;
+    auto it = std::find_if(tabs_.begin(), tabs_.end(),
+        [&id](const TabInfo& tab) { return tab.id == id; });
+    if (it == tabs_.end()) return;
+
+    TabInfo tab = std::move(*it);
+    tabs_.erase(it);
+    size_t clamped = static_cast<size_t>(std::clamp(newIndex, 0, static_cast<int>(tabs_.size())));
+    tabs_.insert(tabs_.begin() + static_cast<std::ptrdiff_t>(clamped), std::move(tab));
+}
+
+void MainWindow::pinTab(const std::string& id) {
+    for (auto& tab : tabs_) {
+        if (tab.id == id) { tab.pinned = true; break; }
+    }
+}
+
+void MainWindow::unpinTab(const std::string& id) {
+    for (auto& tab : tabs_) {
+        if (tab.id == id) { tab.pinned = false; break; }
+    }
+}
+
+void MainWindow::addCustomPanel(const std::string& id, const std::string& title, Widget::Ptr content) {
+    (void)id; (void)title; (void)content;
+}
+void MainWindow::removeCustomPanel(const std::string& id) { (void)id; }
+void MainWindow::splitHorizontal() {}
+void MainWindow::splitVertical() {}
+void MainWindow::closeSplit() {}
+void MainWindow::focusNextSplit() {}
+void MainWindow::focusPreviousSplit() {}
+void MainWindow::showDebugConsole() { showPanel(PanelType::Debug); panelVisible_ = true; }
+void MainWindow::setStatusBarItems(const std::vector<StatusBarItem>& items) { statusBarItems_ = items; }
+void MainWindow::updateStatusBarItem(const std::string& id, const std::string& text) {
+    for (auto& item : statusBarItems_) if (item.id == id) { item.text = text; break; }
+}
+void MainWindow::addStatusBarItem(const StatusBarItem& item) { statusBarItems_.push_back(item); }
+void MainWindow::removeStatusBarItem(const std::string& id) {
+    statusBarItems_.erase(std::remove_if(statusBarItems_.begin(), statusBarItems_.end(),
+        [&id](const StatusBarItem& i) { return i.id == id; }), statusBarItems_.end());
+}
+void MainWindow::showGoToLine() {}
+void MainWindow::showGoToSymbol() {}
+void MainWindow::showProgressNotification(const std::string& title, std::function<void(std::function<void(float)>)> task) {
+    (void)title;
+    if (task) task([](float) {});
+}
+std::string MainWindow::showOpenDialog(const std::string& title, const std::vector<std::string>& filters) {
+    (void)title; (void)filters; return "";
+}
+std::vector<std::string> MainWindow::showOpenMultipleDialog(const std::string& title, const std::vector<std::string>& filters) {
+    (void)title; (void)filters; return {};
+}
+std::string MainWindow::showSaveDialog(const std::string& title, const std::string& defaultName, const std::vector<std::string>& filters) {
+    (void)title; (void)defaultName; (void)filters; return "";
+}
+std::string MainWindow::showFolderDialog(const std::string& title) { (void)title; return ""; }
+int MainWindow::showMessageBox(const std::string& title, const std::string& message, const std::vector<std::string>& buttons) {
+    (void)title; (void)message; (void)buttons; return 0;
+}
+void MainWindow::updateTabTitle(const std::string& id) { (void)id; updateWindowTitle(); }
 
 void MainWindow::showTerminal() {
     showPanel(PanelType::Terminal);
@@ -333,7 +449,7 @@ bool MainWindow::handleEvent(Core::Event& event) {
         return true;
     }
 
-    if (auto* closeEvent = dynamic_cast<Core::WindowCloseEvent*>(&event)) {
+    if (dynamic_cast<Core::WindowCloseEvent*>(&event)) {
         if (onClose) {
             onClose();
         }
@@ -449,20 +565,32 @@ void MainWindow::setupKeyboardShortcuts() {
 
 bool MainWindow::handleKeyboardShortcut(const Core::KeyPressEvent& event) {
     // Handle Ctrl/Cmd based shortcuts
-    bool ctrl = (event.modifiers & 0x0002) != 0;  // Ctrl mask
+    bool ctrl = (event.modifiers & 0x0002) != 0;   // Ctrl mask
     bool shift = (event.modifiers & 0x0001) != 0;  // Shift mask
+
+    if (ctrl && shift) {
+        switch (event.keyCode) {
+            case 'P':  // Command palette
+                showCommandPalette();
+                return true;
+            case 'O':  // Go to symbol
+                showGoToSymbol();
+                return true;
+        }
+    }
 
     if (ctrl) {
         switch (event.keyCode) {
             case 'N':  // New file
+                newFile();
                 return true;
             case 'O':  // Open file
                 showQuickOpen();
                 return true;
             case 'S':  // Save
                 return true;
-            case 'P':  // Command palette
-                showCommandPalette();
+            case 'P':  // Quick open
+                showQuickOpen();
                 return true;
             case '`':  // Toggle terminal
                 if (panelVisible_) {
@@ -473,13 +601,6 @@ bool MainWindow::handleKeyboardShortcut(const Core::KeyPressEvent& event) {
                 return true;
             case 'B':  // Toggle sidebar
                 setSidebarVisible(!sidebarVisible_);
-                return true;
-        }
-    }
-
-    if (ctrl && shift) {
-        switch (event.keyCode) {
-            case 'P':  // Go to symbol
                 return true;
         }
     }

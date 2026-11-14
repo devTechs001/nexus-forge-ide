@@ -5,66 +5,89 @@
 
 #ifdef NEXUS_ENABLE_DX12
 
-#include <d3d12.h>
-#include <dxgi1_4.h>
+#include <d3d11.h>
+#include <dxgi.h>
 #include <vector>
 #include <string>
+#include <unordered_map>
 
 namespace NexusForge::UI {
 
-// DirectX 12 render backend
+// DirectX render backend
 class DirectXBackend : public RenderBackend {
 public:
     DirectXBackend();
     ~DirectXBackend() override;
 
-    bool initialize() override;
+    bool initialize() override { return initialize(nullptr); }
+    bool initialize(void* windowHandle);
     void shutdown() override;
 
-    void setViewport(int x, int y, int width, int height) override;
-    void clear(const Color& color) override;
+    void beginFrame() override;
+    void endFrame() override;
     void present() override;
 
+    void setViewport(int x, int y, int width, int height) override;
+    void setProjection(const Mat4& projection);
+    void clear(const Color& color) override;
+    void draw(const DrawCommand& cmd) override { executeDrawCommand(cmd); }
     void executeDrawCommand(const DrawCommand& cmd) override;
 
-    // DirectX-specific
-    ID3D12Device* getDevice() const { return device_; }
-    ID3D12CommandQueue* getCommandQueue() const { return commandQueue_; }
-    ID3D12RootSignature* getRootSignature() const { return rootSignature_; }
-    ID3D12PipelineState* getPipelineState() const { return pipelineState_; }
+    void drawRect(const Rect& rect, const Color& color);
+    void drawRoundedRect(const Rect& rect, const Color& color, float radius);
+    void drawTexture(TextureHandle texture, const Rect& rect, const Color& tint);
+    void drawLine(float x1, float y1, float x2, float y2, const Color& color, float thickness);
+    void drawCircle(float cx, float cy, float radius, const Color& color, bool filled);
+    void drawText(const std::string& text, float x, float y, const Color& color,
+                  const std::string& fontFamily, float fontSize);
+    void setClipRect(const Rect& rect);
+    void clearClipRect();
+
+    TextureHandle createTexture(int width, int height, const void* data);
+    void destroyTexture(TextureHandle texture);
+    void updateTexture(TextureHandle texture, int width, int height, const void* data);
+
+    bool isInitialized() const;
+    std::string getRendererInfo() const;
+
+    ID3D11Device* getDevice() const { return device_; }
 
 private:
-    ID3D12Device* device_ = nullptr;
-    ID3D12CommandQueue* commandQueue_ = nullptr;
-    ID3D12GraphicsCommandList* commandList_ = nullptr;
-    ID3D12RootSignature* rootSignature_ = nullptr;
-    ID3D12PipelineState* pipelineState_ = nullptr;
+    struct TextureData {
+        ID3D11Texture2D* resource = nullptr;
+        ID3D11ShaderResourceView* shaderResourceView = nullptr;
+    };
 
-    IDXGISwapChain3* swapChain_ = nullptr;
-    std::vector<ID3D12Resource*> renderTargets_;
+    bool initialized_ = false;
+    void* windowHandle_ = nullptr;
+    int viewportWidth_ = 0;
+    int viewportHeight_ = 0;
+    Mat4 projection_;
+    Color clearColor_;
 
-    std::vector<Vertex> vertices_;
-    std::vector<uint32_t> indices_;
+    ID3D11Device* device_ = nullptr;
+    ID3D11DeviceContext* context_ = nullptr;
+    IDXGISwapChain* swapChain_ = nullptr;
+    ID3D11RenderTargetView* renderTargetView_ = nullptr;
+    ID3D11VertexShader* vertexShader_ = nullptr;
+    ID3D11PixelShader* pixelShader_ = nullptr;
+    ID3D11PixelShader* pixelShaderColor_ = nullptr;
+    ID3D11PixelShader* pixelShaderTexture_ = nullptr;
+    ID3D11InputLayout* inputLayout_ = nullptr;
+    ID3D11Buffer* constantBuffer_ = nullptr;
+    ID3D11SamplerState* samplerState_ = nullptr;
+    ID3D11BlendState* blendState_ = nullptr;
+    ID3D11Buffer* vertexBuffer_ = nullptr;
+    ID3D11Buffer* indexBuffer_ = nullptr;
+    ID3D11ShaderResourceView* currentTexture_ = nullptr;
+    UINT vertexStride_ = 0;
+    UINT vertexOffset_ = 0;
 
-    bool createDevice();
-    bool createCommandQueue();
-    bool createSwapChain(void* window);
-    bool createRenderTargets();
-    bool createRootSignature();
-    bool createPipelineState();
-    bool createCommandList();
-    bool createDescriptorHeaps();
+    std::unordered_map<TextureHandle, TextureData> textures_;
+    TextureHandle nextTextureHandle_ = 1;
 
-    void waitForPreviousFrame();
-    void moveToNextFrame();
-
-    void renderRect(const DrawCommand& cmd);
-    void renderRoundedRect(const DrawCommand& cmd);
-    void renderCircle(const DrawCommand& cmd);
-    void renderLine(const DrawCommand& cmd);
-    void renderTriangle(const DrawCommand& cmd);
-    void renderText(const DrawCommand& cmd);
-    void renderImage(const DrawCommand& cmd);
+    void createShaders();
+    void createBuffers();
 };
 
 } // namespace NexusForge::UI

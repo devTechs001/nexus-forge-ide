@@ -5,6 +5,7 @@
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
+#include <cctype>
 
 namespace NexusForge::Workspace {
 
@@ -14,10 +15,24 @@ Project::~Project() = default;
 void Project::addFile(const std::string& path) {
     ProjectFile pf;
     pf.path = path;
-    auto pos = path.rfind('/');
+    auto pos = path.find_last_of("/\\");
     pf.relativePath = (pos != std::string::npos) ? path.substr(pos + 1) : path;
     auto dot = pf.relativePath.rfind('.');
     pf.extension = (dot != std::string::npos) ? pf.relativePath.substr(dot) : "";
+    std::string ext = pf.extension;
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx" ||
+        ext == ".m" || ext == ".mm" || ext == ".rs" || ext == ".go" ||
+        ext == ".py" || ext == ".js" || ext == ".ts" || ext == ".java") {
+        pf.isSource = true;
+        pf.itemType = "source";
+    } else if (ext == ".h" || ext == ".hh" || ext == ".hpp" || ext == ".hxx" || ext == ".inl") {
+        pf.isHeader = true;
+        pf.itemType = "header";
+    } else {
+        pf.itemType = "other";
+    }
     files_.push_back(pf);
 }
 

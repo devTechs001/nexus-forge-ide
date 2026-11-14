@@ -4,23 +4,75 @@
 #include "terminal_emulator.hpp"
 #include <algorithm>
 #include <cstring>
+#include <cctype>
+#include <sstream>
 
 namespace NexusForge::Terminal {
+
+void TerminalScreen::resize(size_t newColumns, size_t newRows) {
+    columns = std::max<size_t>(1, newColumns);
+    rows = std::max<size_t>(1, newRows);
+    cells.assign(columns * rows, TerminalCell{});
+    cursorX = std::min(cursorX, columns - 1);
+    cursorY = std::min(cursorY, rows - 1);
+}
+
+void TerminalScreen::clear() {
+    cells.assign(columns * rows, TerminalCell{});
+    cursorX = 0;
+    cursorY = 0;
+}
+
+void TerminalScreen::clearLine(size_t y) {
+    if (y >= rows) return;
+    for (size_t x = 0; x < columns; ++x) {
+        at(x, y) = TerminalCell{};
+    }
+}
+
+void TerminalScreen::clearRegion(size_t x1, size_t y1, size_t x2, size_t y2) {
+    for (size_t y = y1; y <= y2 && y < rows; ++y) {
+        for (size_t x = x1; x <= x2 && x < columns; ++x) {
+            at(x, y) = TerminalCell{};
+        }
+    }
+}
+
+void ScrollbackBuffer::addLine(std::vector<TerminalCell> line) {
+    lines.push_back(std::move(line));
+    if (lines.size() > maxLines) {
+        lines.erase(lines.begin());
+    }
+}
+
+void ScrollbackBuffer::clear() {
+    lines.clear();
+    scrollOffset = 0;
+}
+
+ColorTable::ColorTable() {
+    for (int i = 0; i < 256; ++i) colors[i] = 0xFFFFFFFFu;
+}
+
+uint32_t ColorTable::getColor(uint8_t index) const { return colors[index]; }
+void ColorTable::setColor(uint8_t index, uint32_t color) { colors[index] = color; }
 
 TerminalEmulator::TerminalEmulator() : pty_(nullptr) {
     rows_ = 24;
     cols_ = 80;
-    
+    scrollTop_ = 0;
+    scrollBottom_ = rows_ - 1;
+
     // Initialize screen buffer
     screen_.resize(rows_);
     for (auto& row : screen_) {
         row.resize(cols_, Cell{});
     }
-    
+
     // Default colors
     defaultFg_ = Color(0.9f, 0.9f, 0.9f);
     defaultBg_ = Color(0.1f, 0.1f, 0.12f);
-    
+
     // ANSI colors
     ansiColors_ = {
         Color(0, 0, 0),         // Black
@@ -40,7 +92,7 @@ TerminalEmulator::TerminalEmulator() : pty_(nullptr) {
         Color(0.3f, 1.0f, 1.0f),// Bright Cyan
         Color(1.0f, 1.0f, 1.0f) // Bright White
     };
-    
+
     currentFg_ = defaultFg_;
     currentBg_ = defaultBg_;
 }
@@ -50,14 +102,15 @@ TerminalEmulator::~TerminalEmulator() {
 }
 
 bool TerminalEmulator::initialize(int cols, int rows) {
-    cols_ = cols;
-    rows_ = rows;
-    
-    screen_.resize(rows_);
-    for (auto& row : screen_) {
-        row.resize(cols_, Cell{});
-    }
-    
+    cols_ = std::max(1, cols);
+    rows_ = std::max(1, rows);
+    scrollTop_ = 0;
+    scrollBottom_ = rows_ - 1;
+    cursorX_ = 0;
+    cursorY_ = 0;
+
+    screen_.assign(rows_, std::vector<Cell>(cols_, Cell{}));
+
     return true;
 }
 
@@ -122,22 +175,27 @@ void TerminalEmulator::inputKey(int keyCode, int modifiers) {
 }
 
 void TerminalEmulator::resize(int cols, int rows) {
-    cols_ = cols;
-    rows_ = rows;
-    
+    cols_ = std::max(1, cols);
+    rows_ = std::max(1, rows);
+
     // Resize screen buffer
-    std::vector<std::vector<Cell>> newScreen(rows);
-    for (int i = 0; i < rows && i < static_cast<int>(screen_.size()); ++i) {
-        newScreen[i].resize(cols);
-        for (int j = 0; j < cols && j < static_cast<int>(screen_[i].size()); ++j) {
+    std::vector<std::vector<Cell>> newScreen(rows_, std::vector<Cell>(cols_, Cell{}));
+    for (int i = 0; i < rows_ && i < static_cast<int>(screen_.size()); ++i) {
+        for (int j = 0; j < cols_ && j < static_cast<int>(screen_[i].size()); ++j) {
             newScreen[i][j] = screen_[i][j];
         }
     }
-    
+
     screen_ = std::move(newScreen);
-    
+    scrollTop_ = 0;
+    scrollBottom_ = rows_ - 1;
+    cursorX_ = std::clamp(cursorX_, 0, cols_ - 1);
+    cursorY_ = std::clamp(cursorY_, 0, rows_ - 1);
+    savedCursorX_ = std::clamp(savedCursorX_, 0, cols_ - 1);
+    savedCursorY_ = std::clamp(savedCursorY_, 0, rows_ - 1);
+
     if (pty_) {
-        pty_->resize(cols, rows);
+        pty_->resize(cols_, rows_);
     }
 }
 
@@ -147,26 +205,34 @@ void TerminalEmulator::clear() {
             cell = Cell{};
         }
     }
-    
+
     cursorX_ = 0;
     cursorY_ = 0;
     scrollTop_ = 0;
-    scrollBottom_ = rows_ - 1;
+    scrollBottom_ = std::max(0, rows_ - 1);
 }
 
 void TerminalEmulator::scrollUp(int lines) {
+    if (lines <= 0 || screen_.empty() || scrollTop_ < 0 ||
+        scrollBottom_ >= static_cast<int>(screen_.size()) || scrollTop_ > scrollBottom_) {
+        return;
+    }
     for (int i = 0; i < lines; ++i) {
         screen_.erase(screen_.begin() + scrollTop_);
         std::vector<Cell> newRow(cols_, Cell{});
-        screen_.insert(screen_.begin() + scrollBottom_, newRow);
+        screen_.insert(screen_.begin() + scrollBottom_, std::move(newRow));
     }
 }
 
 void TerminalEmulator::scrollDown(int lines) {
+    if (lines <= 0 || screen_.empty() || scrollTop_ < 0 ||
+        scrollBottom_ >= static_cast<int>(screen_.size()) || scrollTop_ > scrollBottom_) {
+        return;
+    }
     for (int i = 0; i < lines; ++i) {
         screen_.erase(screen_.begin() + scrollBottom_);
         std::vector<Cell> newRow(cols_, Cell{});
-        screen_.insert(screen_.begin() + scrollTop_, newRow);
+        screen_.insert(screen_.begin() + scrollTop_, std::move(newRow));
     }
 }
 
@@ -208,9 +274,9 @@ void TerminalEmulator::processChar(char c) {
             break;
             
         default:
-            if (c >= 32) {
+            if (static_cast<unsigned char>(c) >= 32) {
                 // Printable character
-                if (cursorX_ < cols_ && cursorY_ < rows_) {
+                if (cursorX_ >= 0 && cursorX_ < cols_ && cursorY_ >= 0 && cursorY_ < rows_) {
                     Cell& cell = screen_[cursorY_][cursorX_];
                     cell.character = c;
                     cell.fgColor = currentFg_;
@@ -235,15 +301,15 @@ void TerminalEmulator::processChar(char c) {
 
 void TerminalEmulator::processEscapeSequence(char c) {
     escapeSequence_ += c;
-    
+
     // Check for CSI (Control Sequence Introducer)
     if (escapeSequence_ == "[") {
         return;  // Waiting for more
     }
-    
+
     if (escapeSequence_.size() > 1 && escapeSequence_[0] == '[') {
         // CSI sequence
-        if (std::isalpha(c)) {
+        if (std::isalpha(static_cast<unsigned char>(c))) {
             // End of sequence
             executeCSI(escapeSequence_.substr(1, escapeSequence_.size() - 2), c);
             inEscapeSequence_ = false;
@@ -399,25 +465,29 @@ std::vector<int> TerminalEmulator::parseParams(const std::string& params) {
 }
 
 void TerminalEmulator::eraseDisplay(int mode) {
+    if (rows_ <= 0 || cols_ <= 0) return;
+    int cy = std::clamp(cursorY_, 0, rows_ - 1);
+    int cx = std::clamp(cursorX_, 0, cols_ - 1);
+
     switch (mode) {
         case 0:  // Erase from cursor to end
-            for (int y = cursorY_; y < rows_; ++y) {
-                int startX = (y == cursorY_) ? cursorX_ : 0;
+            for (int y = cy; y < rows_; ++y) {
+                int startX = (y == cy) ? cx : 0;
                 for (int x = startX; x < cols_; ++x) {
                     screen_[y][x] = Cell{};
                 }
             }
             break;
-            
+
         case 1:  // Erase from start to cursor
-            for (int y = 0; y <= cursorY_; ++y) {
-                int endX = (y == cursorY_) ? cursorX_ : cols_;
+            for (int y = 0; y <= cy; ++y) {
+                int endX = (y == cy) ? std::min(cols_, cx + 1) : cols_;
                 for (int x = 0; x < endX; ++x) {
                     screen_[y][x] = Cell{};
                 }
             }
             break;
-            
+
         case 2:  // Erase all
             clear();
             break;
@@ -425,19 +495,22 @@ void TerminalEmulator::eraseDisplay(int mode) {
 }
 
 void TerminalEmulator::eraseLine(int mode) {
+    if (cursorY_ < 0 || cursorY_ >= rows_ || cols_ <= 0) return;
+    int cx = std::clamp(cursorX_, 0, cols_ - 1);
+
     switch (mode) {
         case 0:  // Erase from cursor to end of line
-            for (int x = cursorX_; x < cols_; ++x) {
+            for (int x = cx; x < cols_; ++x) {
                 screen_[cursorY_][x] = Cell{};
             }
             break;
-            
+
         case 1:  // Erase from start of line to cursor
-            for (int x = 0; x <= cursorX_; ++x) {
+            for (int x = 0; x <= cx; ++x) {
                 screen_[cursorY_][x] = Cell{};
             }
             break;
-            
+
         case 2:  // Erase entire line
             for (int x = 0; x < cols_; ++x) {
                 screen_[cursorY_][x] = Cell{};
@@ -525,7 +598,7 @@ std::string TerminalEmulator::getKeyPressSequence(int keyCode, int modifiers) {
         case 27:  // Escape
             return "\x1b";
         case 32:  // Space
-            return ctrl ? "\x00" : " ";
+            return ctrl ? std::string(1, '\0') : " ";
         case 37:  // Left
             return prefix + (ctrl ? "\x1b[1;5D" : "\x1b[D");
         case 38:  // Up
@@ -547,12 +620,18 @@ std::string TerminalEmulator::getKeyPressSequence(int keyCode, int modifiers) {
         case 46:  // Delete
             return prefix + "\x1b[3~";
         case 112: case 113: case 114: case 115:
-        case 116: case 117: case 118: case 119:
-        case 120: case 121: case 122: case 123:
-            // F1-F12
-            return prefix + "\x1bO" + std::string(1, 'P' + (keyCode - 112));
+            // F1-F4 (VT100 SS3)
+            return prefix + "\x1bO" + std::string(1, static_cast<char>('P' + (keyCode - 112)));
+        case 116: return prefix + "\x1b[15~"; // F5
+        case 117: return prefix + "\x1b[17~"; // F6
+        case 118: return prefix + "\x1b[18~"; // F7
+        case 119: return prefix + "\x1b[19~"; // F8
+        case 120: return prefix + "\x1b[20~"; // F9
+        case 121: return prefix + "\x1b[21~"; // F10
+        case 122: return prefix + "\x1b[23~"; // F11
+        case 123: return prefix + "\x1b[24~"; // F12
     }
-    
+
     return "";
 }
 
@@ -600,6 +679,10 @@ void TerminalEmulator::copySelection() {
 
 void TerminalEmulator::paste() {
     // Paste from clipboard
+}
+
+std::unique_ptr<PTYHandler> createPTYHandler() {
+    return std::make_unique<PTYHandler>();
 }
 
 } // namespace NexusForge::Terminal

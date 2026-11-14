@@ -98,18 +98,26 @@ void WelcomeScreen::drawHeader(RenderEngine& renderer, const Rect& bounds) {
     renderer.drawText("Version 1.0.0 - Phoenix", bounds.x + 140, bounds.y + 85,
                      Color(0.5f, 0.5f, 0.55f), "default", 12);
     
-    // Greeting based on time
+    // Greeting based on time (thread-safe)
     auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    struct tm* tm_info = localtime(&time);
-    
-    std::string greeting;
-    if (tm_info->tm_hour < 12) {
-        greeting = "Good morning";
-    } else if (tm_info->tm_hour < 18) {
-        greeting = "Good afternoon";
-    } else {
-        greeting = "Good evening";
+    std::time_t time = std::chrono::system_clock::to_time_t(now);
+    std::tm tmBuf{};
+    bool hasTime = false;
+#ifdef _WIN32
+    hasTime = (localtime_s(&tmBuf, &time) == 0);
+#else
+    hasTime = (localtime_r(&time, &tmBuf) != nullptr);
+#endif
+
+    std::string greeting = "Hello";
+    if (hasTime) {
+        if (tmBuf.tm_hour < 12) {
+            greeting = "Good morning";
+        } else if (tmBuf.tm_hour < 18) {
+            greeting = "Good afternoon";
+        } else {
+            greeting = "Good evening";
+        }
     }
     
     renderer.drawText(greeting + ", Developer", bounds.x + 40, bounds.y + 120,
@@ -262,11 +270,17 @@ std::string WelcomeScreen::getFileIcon(const std::string& path) const {
 
 std::string WelcomeScreen::truncatePath(const std::string& path, size_t maxLen) const {
     if (path.length() <= maxLen) return path;
-    
-    size_t startLen = maxLen / 2 - 2;
-    size_t endLen = maxLen / 2 - 2;
-    
+    if (maxLen <= 3) return path.substr(0, maxLen);
+
+    size_t remaining = maxLen - 3;
+    size_t startLen = remaining / 2;
+    size_t endLen = remaining - startLen;
+
     return path.substr(0, startLen) + "..." + path.substr(path.length() - endLen);
+}
+
+void WelcomeScreen::loadTips() {
+    currentTip_ = "Press Ctrl+P to quickly open files, or Ctrl+Shift+P for the command palette.";
 }
 
 bool WelcomeScreen::onMouseDown(const Core::MouseButtonPressEvent& event) {

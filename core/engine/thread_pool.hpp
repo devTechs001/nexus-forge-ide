@@ -10,6 +10,7 @@
 #include <future>
 #include <atomic>
 #include <string>
+#include <stdexcept>
 
 namespace NexusForge::Core {
 
@@ -37,12 +38,21 @@ struct WorkerInfo {
     std::thread::id id;
     std::string currentTask;
     std::atomic<bool> busy{false};
-    uint64_t tasksCompleted{0};
+    std::atomic<uint64_t> tasksCompleted{0};
     
     WorkerInfo() = default;
     WorkerInfo(const WorkerInfo& other) 
         : id(other.id), currentTask(other.currentTask), 
-          busy(other.busy.load()), tasksCompleted(other.tasksCompleted) {}
+          busy(other.busy.load()), tasksCompleted(other.tasksCompleted.load()) {}
+    WorkerInfo& operator=(const WorkerInfo& other) {
+        if (this != &other) {
+            id = other.id;
+            currentTask = other.currentTask;
+            busy.store(other.busy.load());
+            tasksCompleted.store(other.tasksCompleted.load());
+        }
+        return *this;
+    }
 };
 
 class ThreadPool {

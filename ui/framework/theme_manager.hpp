@@ -48,10 +48,16 @@ struct GradientColor {
     }
     
     static GradientColor fromHex(uint32_t hex) {
-        float r = ((hex >> 24) & 0xFF) / 255.0f;
-        float g = ((hex >> 16) & 0xFF) / 255.0f;
-        float b = ((hex >> 8) & 0xFF) / 255.0f;
-        float a = (hex & 0xFF) / 255.0f;
+        if (hex <= 0xFFFFFFu) {
+            float r = ((hex >> 16) & 0xFFu) / 255.0f;
+            float g = ((hex >> 8) & 0xFFu) / 255.0f;
+            float b = (hex & 0xFFu) / 255.0f;
+            return fromRGBA(r, g, b, 1.0f);
+        }
+        float r = ((hex >> 24) & 0xFFu) / 255.0f;
+        float g = ((hex >> 16) & 0xFFu) / 255.0f;
+        float b = ((hex >> 8) & 0xFFu) / 255.0f;
+        float a = (hex & 0xFFu) / 255.0f;
         return fromRGBA(r, g, b, a);
     }
     
@@ -322,6 +328,7 @@ public:
 
 private:
     std::unordered_map<std::string, Theme> themes_;
+    std::string currentThemeId_;
     Theme* currentTheme_ = nullptr;
     std::vector<ThemeChangedCallback> callbacks_;
     

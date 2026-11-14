@@ -1,6 +1,8 @@
 // debugger/debug_adapter_protocol.hpp
 #pragma once
 
+#include "breakpoint_manager.hpp"
+#include "variable_inspector.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -8,6 +10,7 @@
 #include <memory>
 #include <variant>
 #include <optional>
+#include <cstdint>
 
 namespace NexusForge::Debugger {
 
@@ -25,19 +28,6 @@ struct DAPMessage {
     std::string message;
 };
 
-// Breakpoint
-struct Breakpoint {
-    int id = 0;
-    bool verified = false;
-    std::string source;
-    int line = 0;
-    int column = 0;
-    std::string condition;
-    std::string hitCondition;
-    std::string logMessage;
-    bool logBreakpoint = false;
-};
-
 // Stack frame
 struct StackFrame {
     int id = 0;
@@ -50,40 +40,13 @@ struct StackFrame {
     bool canRestart = false;
     std::string instructionPointerReference;
     std::string moduleId;
-    bool presentationHint;  // normal, label, subtle
-};
-
-// Variable
-struct Variable {
-    std::string name;
-    std::string value;
-    std::string type;
-    int variablesReference = 0;
-    int namedVariables = 0;
-    int indexedVariables = 0;
-    std::string memoryReference;
-    std::string evaluateName;
-    std::string presentationHint;
+    bool presentationHint = false;  // normal, label, subtle
 };
 
 // Thread
 struct Thread {
     int id = 0;
     std::string name;
-};
-
-// Scope
-struct Scope {
-    std::string name;
-    int variablesReference = 0;
-    bool namedVariables = false;
-    int indexedVariables = 0;
-    bool expensive = false;
-    std::string source;
-    int line = 0;
-    int column = 0;
-    int endLine = 0;
-    int endColumn = 0;
 };
 
 // Source
@@ -314,33 +277,63 @@ private:
     void onMemory(const DAPMessage& msg);
 };
 
-// Breakpoint manager
-class BreakpointManager {
+// Low-level Debug Adapter Protocol client
+class DebugAdapterProtocol {
 public:
-    BreakpointManager();
+    DebugAdapterProtocol();
+    ~DebugAdapterProtocol();
 
-    // Breakpoint management
-    int addBreakpoint(const std::string& source, int line, int column = 0,
-                      const std::string& condition = "", bool enabled = true);
-    bool removeBreakpoint(int id);
-    bool enableBreakpoint(int id, bool enabled = true);
-    bool updateBreakpoint(int id, const std::string& condition = "",
-                          const std::string& hitCondition = "");
+    bool connect(const std::string& adapterPath, int port = 0);
+    void disconnect();
+    bool initialize();
+    bool launch(const std::string& program,
+                const std::vector<std::string>& args = {},
+                const std::string& cwd = "",
+                const std::unordered_map<std::string, std::string>& env = {});
+    bool attach(int processId);
 
-    const std::unordered_map<int, Breakpoint>& getBreakpoints() const { return breakpoints_; }
-    std::vector<Breakpoint> getBreakpointsForSource(const std::string& source) const;
-    Breakpoint* getBreakpoint(int id);
+    void terminate();
+    void pause(int threadId);
+    void continueExecution(int threadId);
+    void stepInto(int threadId);
+    void stepOver(int threadId);
+    void stepOut(int threadId);
 
-    // Toggle
-    int toggleBreakpoint(const std::string& source, int line);
+    void setBreakpoint(const std::string& sourcePath, int line,
+                       const std::string& condition = "", int hitCondition = 0);
+    void removeBreakpoint(int breakpointId);
 
-    // Clear
-    void clearAllBreakpoints();
-    void clearBreakpointsForSource(const std::string& source);
+    void getThreads();
+    void getStackTrace(int threadId, int startFrame = 0, int levels = 20);
+    void getScopes(int frameId);
+    void getVariables(int variablesReference, int filter = 0, int start = 0, int count = 0);
+    void evaluate(const std::string& expression, int frameId = 0, const std::string& context = "repl");
+
+    void onMessageReceived(const std::string& message);
+
+    bool isConnected() const;
+    bool isInitialized() const;
+    int getProcessId() const;
+
+    // Events
+    std::function<void(const std::string&, int)> onStopped;
+    std::function<void(int)> onContinued;
+    std::function<void()> onTerminated;
+    std::function<void(const std::string&, const std::string&)> onOutput;
+    std::function<void(const std::string&)> onError;
 
 private:
-    std::unordered_map<int, Breakpoint> breakpoints_;
-    int nextId_ = 1;
+    std::string adapterPath_;
+    int port_ = 0;
+    bool connected_ = false;
+    bool initialized_ = false;
+    int processId_ = 0;
+    int nextSeq_ = 1;
+
+    void sendDisconnect();
+    void sendRequest(const std::string& requestJson);
+    void handleResponse(const std::string& responseJson);
+    void handleEvent(const std::string& eventJson);
 };
 
 } // namespace NexusForge::Debugger

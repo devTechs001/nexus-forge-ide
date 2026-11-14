@@ -6,8 +6,68 @@
 #include <functional>
 #include <unordered_map>
 #include <memory>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 namespace NexusForge::Terminal {
+
+// Concrete POSIX PTY handler
+class PTYHandler {
+public:
+    using OutputCallback = std::function<void(const std::string&)>;
+    using ErrorCallback = std::function<void(const std::string&)>;
+    using ExitCallback = std::function<void(int)>;
+
+    PTYHandler();
+    ~PTYHandler();
+
+    PTYHandler(const PTYHandler&) = delete;
+    PTYHandler& operator=(const PTYHandler&) = delete;
+
+    bool spawn(const std::string& shell,
+               const std::vector<std::string>& args = {},
+               const std::string& cwd = "",
+               const std::unordered_map<std::string, std::string>& env = {},
+               int cols = 80, int rows = 24);
+    void close();
+
+    void write(const std::string& data);
+    void resize(int cols, int rows);
+    void kill();
+
+    bool isRunning() const;
+    int getExitCode() const;
+    int getPid() const { return childPid_; }
+
+    void setOutputCallback(OutputCallback callback);
+    void setErrorCallback(ErrorCallback callback);
+    void setExitCallback(ExitCallback callback);
+
+    std::string getWorkingDirectory() const;
+    std::string getProcessTitle() const;
+
+private:
+    int masterFd_ = -1;
+    int slaveFd_ = -1;
+    int childPid_ = -1;
+    mutable std::atomic<bool> running_{false};
+    mutable std::atomic<bool> reaped_{false};
+    mutable std::atomic<int> exitCode_{0};
+
+    std::thread readThread_;
+    mutable std::mutex callbackMutex_;
+    OutputCallback outputCallback_;
+    ErrorCallback errorCallback_;
+    ExitCallback exitCallback_;
+
+    void childProcess(const std::string& shell,
+                      const std::vector<std::string>& args,
+                      const std::string& cwd,
+                      const std::unordered_map<std::string, std::string>& env,
+                      int cols, int rows);
+    void readLoop();
+};
 
 // PTY configuration
 struct PTYConfig {
@@ -80,18 +140,10 @@ public:
     void setExitCallback(ExitCallback callback) override;
     
 private:
-    int masterFd_ = -1;
-    int slaveFd_ = -1;
-    int pid_ = -1;
-    bool running_ = false;
-    int exitCode_ = 0;
-    
+    PTYHandler handler_;
     PTYConfig config_;
     DataCallback dataCallback_;
     ExitCallback exitCallback_;
-    
-    void readLoop();
-    void waitForExit();
 };
 
 // Windows PTY handler (ConPTY)

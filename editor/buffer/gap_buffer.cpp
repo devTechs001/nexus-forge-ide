@@ -40,7 +40,7 @@ void GapBuffer::insert(size_t pos, const std::string& text) {
 }
 
 void GapBuffer::remove() {
-    if (gapEnd_ > gapStart_) {
+    if (gapEnd_ < buffer_.size()) {
         gapEnd_++;
         length_--;
     }
@@ -49,13 +49,16 @@ void GapBuffer::remove() {
 char GapBuffer::remove(size_t pos) {
     if (pos >= length()) return '\0';
     moveGap(pos);
+    char removed = buffer_[gapEnd_];
     gapEnd_++;
     length_--;
-    return buffer_[gapStart_];
+    return removed;
 }
 
 std::string GapBuffer::remove(size_t pos, size_t len) {
-    std::string result = getText(pos, len);
+    if (pos >= length() || len == 0) return {};
+    len = std::min(len, length() - pos);
+    std::string result = getText(pos, pos + len);
     moveGap(pos);
     gapEnd_ += len;
     length_ -= len;
@@ -96,15 +99,15 @@ void GapBuffer::moveRight() {
 void GapBuffer::moveLineUp() {
     auto [line, col] = offsetToPosition(gapStart_);
     if (line > 0) {
+        col = std::min(col, getLineLength(line - 1));
         move(positionToOffset(line - 1, col));
     }
 }
 
 void GapBuffer::moveLineDown() {
     auto [line, col] = offsetToPosition(gapStart_);
-    size_t maxCol = getLineLength(line);
-    col = std::min(col, maxCol);
     if (line + 1 < getLineCount()) {
+        col = std::min(col, getLineLength(line + 1));
         move(positionToOffset(line + 1, col));
     }
 }
@@ -128,7 +131,7 @@ std::string GapBuffer::getLine(size_t lineNum) const {
     if (lineNum >= getLineCount()) return {};
     size_t start = lineStart(lineNum);
     size_t end = lineEnd(lineNum);
-    return getText(start, end - start);
+    return getText(start, end);
 }
 
 size_t GapBuffer::getLineCount() const {
@@ -226,9 +229,11 @@ void GapBuffer::grow(size_t minCapacity) {
 void GapBuffer::reserve(size_t newCapacity) {
     if (newCapacity <= buffer_.size()) return;
     std::vector<char> newBuffer(newCapacity);
+    size_t afterGap = buffer_.size() - gapEnd_;
+    size_t newGapEnd = newCapacity - afterGap;
     std::copy(buffer_.begin(), buffer_.begin() + gapStart_, newBuffer.begin());
-    std::copy(buffer_.begin() + gapEnd_, buffer_.end(), newBuffer.begin() + gapStart_ + (newCapacity - buffer_.size()));
-    gapEnd_ = gapStart_ + (newCapacity - buffer_.size());
+    std::copy(buffer_.begin() + gapEnd_, buffer_.end(), newBuffer.begin() + newGapEnd);
+    gapEnd_ = newGapEnd;
     buffer_ = std::move(newBuffer);
 }
 
@@ -237,17 +242,15 @@ void GapBuffer::shrinkToFit() {
     if (actualSize < buffer_.size()) {
         std::vector<char> newBuffer(actualSize);
         std::copy(buffer_.begin(), buffer_.begin() + gapStart_, newBuffer.begin());
-        std::copy(buffer_.begin() + gapStart_, buffer_.end(), newBuffer.begin() + gapStart_);
+        std::copy(buffer_.begin() + gapEnd_, buffer_.end(), newBuffer.begin() + gapStart_);
         buffer_ = std::move(newBuffer);
-        gapEnd_ = actualSize;
+        gapEnd_ = gapStart_;
     }
 }
 
 void GapBuffer::moveGap(size_t newPosition) {
     if (newPosition == gapStart_) return;
     if (newPosition > length()) newPosition = length();
-
-    size_t gapSize = gapEnd_ - gapStart_;
 
     if (newPosition < gapStart_) {
         size_t count = gapStart_ - newPosition;
@@ -273,13 +276,15 @@ void GapBuffer::optimize() {
 int GapBuffer::compare(const GapBuffer& other) const {
     size_t minSize = std::min(length(), other.length());
     for (size_t i = 0; i < minSize; ++i) {
-        char a = at(i);
-        char b = other.at(i);
+        unsigned char a = static_cast<unsigned char>(at(i));
+        unsigned char b = static_cast<unsigned char>(other.at(i));
         if (a != b) {
-            return static_cast<int>(a) - static_cast<int>(b);
+            return (a < b) ? -1 : 1;
         }
     }
-    return static_cast<int>(length()) - static_cast<int>(other.length());
+    if (length() < other.length()) return -1;
+    if (length() > other.length()) return 1;
+    return 0;
 }
 
 bool GapBuffer::operator==(const GapBuffer& other) const {

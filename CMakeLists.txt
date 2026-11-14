@@ -23,8 +23,8 @@ option(NEXUS_BUILD_DOCS "Build documentation" OFF)
 option(NEXUS_ENABLE_VULKAN "Enable Vulkan renderer" OFF)
 option(NEXUS_ENABLE_OPENGL "Enable OpenGL renderer" OFF)
 option(NEXUS_ENABLE_METAL "Enable Metal renderer (macOS/iOS)" ON)
-option(NEXUS_ENABLE_DX12 "Enable DirectX 12 renderer (Windows)" ON)
-option(NEXUS_ENABLE_AI "Enable AI features" OFF)
+option(NEXUS_ENABLE_DX12 "Enable DirectX renderer (Windows)" ON)
+option(NEXUS_ENABLE_AI "Enable AI features" ON)
 option(NEXUS_ENABLE_ONNX "Enable ONNX Runtime" ON)
 option(NEXUS_ENABLE_LLAMA "Enable local LLM support" ON)
 option(NEXUS_ENABLE_WEBVIEW "Enable webview support" ON)
@@ -58,23 +58,28 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Find packages
 find_package(Threads REQUIRED)
-find_package(OpenGL REQUIRED)
-find_package(glfw3 REQUIRED)
-find_package(Freetype REQUIRED)
-find_package(OpenSSL REQUIRED)
-find_package(ZLIB REQUIRED)
-find_package(nlohmann_json REQUIRED)
+find_package(OpenGL QUIET)
+find_package(glfw3 QUIET)
+find_package(Freetype QUIET)
+find_package(OpenSSL QUIET)
+find_package(ZLIB QUIET)
+find_package(nlohmann_json QUIET)
 
-# TreeSitter - use pkg-config or find library directly
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(TREESITTER QUIET tree-sitter)
+# TreeSitter - optional via pkg-config or direct lookup
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(TREESITTER QUIET tree-sitter)
+endif()
 if(TREESITTER_FOUND)
     set(TreeSitter_INCLUDE_DIRS ${TREESITTER_INCLUDE_DIRS})
     set(TreeSitter_LIBRARIES ${TREESITTER_LIBRARIES})
+    set(NEXUS_HAS_TREE_SITTER TRUE)
 else()
-    # Fallback: try to find tree-sitter directly
     find_path(TreeSitter_INCLUDE_DIRS tree_sitter/api.h PATH_SUFFIXES tree_sitter)
     find_library(TreeSitter_LIBRARIES NAMES tree-sitter)
+    if(TreeSitter_INCLUDE_DIRS AND TreeSitter_LIBRARIES)
+        set(NEXUS_HAS_TREE_SITTER TRUE)
+    endif()
 endif()
 
 # Tree-sitter grammars (optional - would need to be built separately)
@@ -157,6 +162,14 @@ set(NEXUS_EDITOR_SOURCES
     editor/buffer/piece_table.cpp
     editor/buffer/undo_manager.cpp
     editor/syntax/syntax_highlighter.cpp
+    editor/syntax/tree_sitter_bridge.cpp
+    editor/features/bracket_matching.cpp
+    editor/features/code_folding.cpp
+    editor/features/git_integration.cpp
+    editor/features/multi_cursor.cpp
+    editor/features/search_replace.cpp
+    editor/intellisense/lsp_client.cpp
+    editor/intellisense/completion_provider.cpp
 )
 
 set(NEXUS_AI_SOURCES
@@ -197,11 +210,15 @@ set(NEXUS_CONFIG_SOURCES
 )
 
 set(NEXUS_DEBUGGER_SOURCES
-    # Temporarily excluded - needs API alignment
+    debugger/breakpoint_manager.cpp
+    debugger/variable_inspector.cpp
+    debugger/debug_adapter_protocol.cpp
 )
 
 set(NEXUS_TERMINAL_SOURCES
-    # Temporarily excluded - needs API alignment
+    terminal/pty_handler.cpp
+    terminal/shell_integration.cpp
+    terminal/terminal_emulator.cpp
 )
 
 set(NEXUS_NETWORK_SOURCES
@@ -234,10 +251,17 @@ target_include_directories(NexusForge PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/editor
     ${CMAKE_CURRENT_SOURCE_DIR}/ai
     ${CMAKE_CURRENT_SOURCE_DIR}/extensions
-    ${OPENGL_INCLUDE_DIR}
-    ${FREETYPE_INCLUDE_DIRS}
-    ${TreeSitter_INCLUDE_DIRS}
 )
+if(OPENGL_INCLUDE_DIR)
+    target_include_directories(NexusForge PRIVATE ${OPENGL_INCLUDE_DIR})
+endif()
+if(FREETYPE_INCLUDE_DIRS)
+    target_include_directories(NexusForge PRIVATE ${FREETYPE_INCLUDE_DIRS})
+endif()
+if(NEXUS_HAS_TREE_SITTER)
+    target_include_directories(NexusForge PRIVATE ${TreeSitter_INCLUDE_DIRS})
+    target_compile_definitions(NexusForge PRIVATE NEXUS_HAS_TREE_SITTER)
+endif()
 
 # Compile definitions
 if(NEXUS_ENABLE_VULKAN)
@@ -246,29 +270,49 @@ endif()
 if(NEXUS_ENABLE_OPENGL)
     target_compile_definitions(NexusForge PRIVATE NEXUS_ENABLE_OPENGL)
 endif()
+if(NEXUS_ENABLE_METAL AND (NEXUS_PLATFORM_MACOS OR NEXUS_PLATFORM_IOS))
+    target_compile_definitions(NexusForge PRIVATE NEXUS_ENABLE_METAL)
+endif()
+if(NEXUS_ENABLE_DX12 AND NEXUS_PLATFORM_WINDOWS)
+    target_compile_definitions(NexusForge PRIVATE NEXUS_ENABLE_DX12)
+endif()
 if(NEXUS_ENABLE_AI)
     target_compile_definitions(NexusForge PRIVATE NEXUS_ENABLE_AI)
 endif()
 
 # Link libraries
-target_link_libraries(NexusForge PRIVATE
-    Threads::Threads
-    glfw
-    Freetype::Freetype
-    ${TreeSitter_LIBRARIES}
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    ZLIB::ZLIB
-    nlohmann_json::nlohmann_json
-)
+target_link_libraries(NexusForge PRIVATE Threads::Threads)
 
-if(NEXUS_ENABLE_VULKAN)
-    find_package(Vulkan REQUIRED)
-    target_link_libraries(NexusForge PRIVATE Vulkan::Vulkan)
+if(TARGET glfw)
+    target_link_libraries(NexusForge PRIVATE glfw)
+endif()
+if(TARGET Freetype::Freetype)
+    target_link_libraries(NexusForge PRIVATE Freetype::Freetype)
+endif()
+if(NEXUS_HAS_TREE_SITTER)
+    target_link_libraries(NexusForge PRIVATE ${TreeSitter_LIBRARIES})
+endif()
+if(TARGET OpenSSL::SSL AND TARGET OpenSSL::Crypto)
+    target_link_libraries(NexusForge PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+endif()
+if(TARGET ZLIB::ZLIB)
+    target_link_libraries(NexusForge PRIVATE ZLIB::ZLIB)
+endif()
+if(TARGET nlohmann_json::nlohmann_json)
+    target_link_libraries(NexusForge PRIVATE nlohmann_json::nlohmann_json)
 endif()
 
-if(NEXUS_ENABLE_OPENGL)
+if(NEXUS_ENABLE_VULKAN)
+    find_package(Vulkan QUIET)
+    if(Vulkan_FOUND)
+        target_link_libraries(NexusForge PRIVATE Vulkan::Vulkan)
+        target_compile_definitions(NexusForge PRIVATE NEXUS_HAS_VULKAN)
+    endif()
+endif()
+
+if(NEXUS_ENABLE_OPENGL AND OpenGL_FOUND)
     target_link_libraries(NexusForge PRIVATE OpenGL::GL)
+    target_compile_definitions(NexusForge PRIVATE NEXUS_HAS_OPENGL)
 endif()
 
 if(NEXUS_ENABLE_ONNX)
@@ -282,6 +326,7 @@ endif()
 if(NEXUS_PLATFORM_WINDOWS)
     target_link_libraries(NexusForge PRIVATE
         dwmapi
+        d3d11
         d3d12
         dxgi
         d3dcompiler
@@ -289,14 +334,11 @@ if(NEXUS_PLATFORM_WINDOWS)
         shlwapi
     )
 elseif(NEXUS_PLATFORM_LINUX)
-    target_link_libraries(NexusForge PRIVATE
-        X11
-        Xrandr
-        Xi
-        Xinerama
-        Xcursor
-        dl
-    )
+    target_link_libraries(NexusForge PRIVATE dl)
+    find_package(X11 QUIET)
+    if(X11_FOUND)
+        target_link_libraries(NexusForge PRIVATE X11)
+    endif()
 elseif(NEXUS_PLATFORM_MACOS)
     target_link_libraries(NexusForge PRIVATE
         "-framework Cocoa"
@@ -344,7 +386,7 @@ install(DIRECTORY resources/
 )
 
 # Tests
-if(NEXUS_BUILD_TESTS)
+if(NEXUS_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
     enable_testing()
     add_subdirectory(tests)
 endif()

@@ -55,60 +55,74 @@ TapGestureRecognizer::TapGestureRecognizer(int requiredTaps, int requiredTouches
 
 void TapGestureRecognizer::touchBegan(const std::vector<TouchState>& touches) {
     if (!enabled_ || static_cast<int>(touches.size()) != requiredTouches_) {
+        state_ = GestureState::Failed;
         return;
     }
-    
+
+    auto now = std::chrono::steady_clock::now();
+    if (currentTapCount_ > 0) {
+        float sinceLast = std::chrono::duration<float>(now - lastTapTime_).count();
+        float dx = touches[0].x - initialX_;
+        float dy = touches[0].y - initialY_;
+        if (sinceLast > maxTimeBetweenTaps_ || std::sqrt(dx * dx + dy * dy) > maxTapDistance_) {
+            currentTapCount_ = 0;
+        }
+    }
+
     initialX_ = touches[0].x;
     initialY_ = touches[0].y;
-    currentTapCount_ = 1;
-    lastTapTime_ = std::chrono::steady_clock::now();
+    touchStartTime_ = now;
+    state_ = GestureState::Possible;
 }
 
 void TapGestureRecognizer::touchMoved(const std::vector<TouchState>& touches) {
     if (state_ != GestureState::Possible) return;
-    
+
     // Check if finger moved too far
     if (touches.empty()) return;
-    
+
     float dx = touches[0].x - initialX_;
     float dy = touches[0].y - initialY_;
     float distance = std::sqrt(dx * dx + dy * dy);
-    
+
     if (distance > maxTapDistance_) {
         state_ = GestureState::Failed;
+        currentTapCount_ = 0;
     }
 }
 
 void TapGestureRecognizer::touchEnded(const std::vector<TouchState>& touches) {
+    (void)touches;
     if (!enabled_ || state_ == GestureState::Failed) {
         state_ = GestureState::Failed;
+        currentTapCount_ = 0;
         return;
     }
-    
+
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration<float>(now - lastTapTime_).count();
-    
-    if (elapsed > maxTimeBetweenTaps_) {
-        currentTapCount_ = 1;
-    } else {
-        currentTapCount_++;
+    float tapDuration = std::chrono::duration<float>(now - touchStartTime_).count();
+    if (tapDuration > maxTapDuration_) {
+        state_ = GestureState::Failed;
+        currentTapCount_ = 0;
+        return;
     }
-    
+
+    currentTapCount_++;
     lastTapTime_ = now;
-    
-    if (currentTapCount_ == requiredTaps_) {
+
+    if (currentTapCount_ >= requiredTaps_) {
         state_ = GestureState::Ended;
-        
+
         GestureData data;
-        data.type = type_;
+        data.type = (requiredTaps_ == 2) ? GestureType::DoubleTap : type_;
         data.state = GestureState::Ended;
         data.x = initialX_;
         data.y = initialY_;
         data.tapCount = currentTapCount_;
         data.touchCount = requiredTouches_;
-        
+
         notifyCallback(data);
-        
+
         reset();
     } else {
         state_ = GestureState::Possible;
@@ -201,11 +215,16 @@ PanGestureRecognizer::PanGestureRecognizer(int minTouches, int maxTouches)
 
 void PanGestureRecognizer::touchBegan(const std::vector<TouchState>& touches) {
     if (!enabled_ || static_cast<int>(touches.size()) < minTouches_) return;
-    
+
     startX_ = touches[0].x;
     startY_ = touches[0].y;
+    lastX_ = startX_;
+    lastY_ = startY_;
+    lastTime_ = std::chrono::steady_clock::now();
     translationX_ = 0;
     translationY_ = 0;
+    velocityX_ = 0;
+    velocityY_ = 0;
     state_ = GestureState::Possible;
 }
 
@@ -315,20 +334,21 @@ void SwipeGestureRecognizer::touchMoved(const std::vector<TouchState>& touches) 
             return;
         }
         
-        // Check velocity
-        float velocity = distance / elapsed;
+        // Check velocity safely (guard elapsed == 0)
+        float safeElapsed = std::max(elapsed, 1e-4f);
+        float velocity = distance / safeElapsed;
         if (velocity >= minVelocity_) {
             state_ = GestureState::Ended;
-            
+
             GestureData data;
             data.type = type_;
             data.state = GestureState::Ended;
             data.x = touches[0].x;
             data.y = touches[0].y;
             data.direction = detectedDirection_;
-            data.velocityX = dx / elapsed;
-            data.velocityY = dy / elapsed;
-            
+            data.velocityX = dx / safeElapsed;
+            data.velocityY = dy / safeElapsed;
+
             notifyCallback(data);
         } else {
             state_ = GestureState::Failed;
@@ -354,47 +374,48 @@ PinchGestureRecognizer::PinchGestureRecognizer()
 
 void PinchGestureRecognizer::touchBegan(const std::vector<TouchState>& touches) {
     if (!enabled_ || touches.size() < 2) return;
-    
+
     float dx = touches[1].x - touches[0].x;
     float dy = touches[1].y - touches[0].y;
     initialDistance_ = std::sqrt(dx * dx + dy * dy);
     scale_ = 1.0f;
+    lastTime_ = std::chrono::steady_clock::now();
     state_ = GestureState::Possible;
 }
 
 void PinchGestureRecognizer::touchMoved(const std::vector<TouchState>& touches) {
-    if (!enabled_ || touches.size() < 2) return;
-    
+    if (!enabled_ || touches.size() < 2 || initialDistance_ <= 1e-4f) return;
+
     float dx = touches[1].x - touches[0].x;
     float dy = touches[1].y - touches[0].y;
     float currentDistance = std::sqrt(dx * dx + dy * dy);
-    
+
     if (state_ == GestureState::Possible) {
         float delta = std::abs(currentDistance - initialDistance_);
         if (delta > 5) {
             state_ = GestureState::Began;
         }
     }
-    
+
     if (state_ != GestureState::Possible) {
         float lastScale = scale_;
         scale_ = currentDistance / initialDistance_;
-        
+
         auto now = std::chrono::steady_clock::now();
         float dt = std::chrono::duration<float>(now - lastTime_).count();
-        
+
         if (dt > 0) {
             velocity_ = (scale_ - lastScale) / dt;
         }
-        
+
         lastTime_ = now;
-        
+
         GestureData data;
         data.type = type_;
         data.state = state_;
         data.scale = scale_;
         data.velocity = velocity_;
-        
+
         notifyCallback(data);
     }
 }
@@ -424,9 +445,10 @@ RotationGestureRecognizer::RotationGestureRecognizer()
 
 void RotationGestureRecognizer::touchBegan(const std::vector<TouchState>& touches) {
     if (!enabled_ || touches.size() < 2) return;
-    
+
     initialAngle_ = calculateAngle(touches[0], touches[1]);
     rotation_ = 0;
+    lastTime_ = std::chrono::steady_clock::now();
     state_ = GestureState::Possible;
 }
 
@@ -520,16 +542,25 @@ void GestureHandler::removeAllGestureRecognizers() {
 void GestureHandler::handleTouchEvent(const Core::TouchEvent& event) {
     std::vector<TouchState> touches;
     for (const auto& touch : event.touches) {
-        TouchState state;
+        TouchState state{};
         state.id = touch.id;
         state.x = touch.x;
         state.y = touch.y;
         state.pressure = touch.pressure;
+        state.active = (event.action != Core::TouchEvent::Action::Up &&
+                        event.action != Core::TouchEvent::Action::Cancel);
         touches.push_back(state);
-        
-        activeTouches_[touch.id] = state;
+
+        if (state.active) {
+            activeTouches_[touch.id] = state;
+        } else {
+            activeTouches_.erase(touch.id);
+        }
     }
-    
+    if (event.action == Core::TouchEvent::Action::Cancel) {
+        activeTouches_.clear();
+    }
+
     for (auto& recognizer : recognizers_) {
         switch (event.action) {
             case Core::TouchEvent::Action::Down:

@@ -126,7 +126,8 @@ std::future<ChatResponse> LocalLLMProvider::chat(const ChatRequest& request) {
 }
 
 void LocalLLMProvider::chatStream(const ChatRequest& request, StreamCallback callback) {
-    if (!initialized_ || !modelLoaded_ || !callback) {
+    if (!callback) return;
+    if (!initialized_ || !modelLoaded_) {
         callback("", true);
         return;
     }

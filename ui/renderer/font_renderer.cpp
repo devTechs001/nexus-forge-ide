@@ -12,8 +12,7 @@ FontRenderer::~FontRenderer() {
 }
 
 bool FontRenderer::initialize() {
-    // Initialize font rendering system
-    // Would load default fonts
+    loadFont("default", "", 14.0f);
     return true;
 }
 
@@ -23,25 +22,31 @@ void FontRenderer::shutdown() {
 }
 
 bool FontRenderer::loadFont(const std::string& name, const std::string& path, float size) {
-    // Would use FreeType or similar to load font
+    (void)path;
+    float effectiveSize = size > 0.0f ? size : 14.0f;
     auto font = std::make_unique<FontFace>();
     font->name = name;
-    font->size = size;
-    font->lineHeight = size * 1.2f;
-    font->ascent = size * 0.8f;
-    font->descent = size * 0.2f;
-    
+    font->size = effectiveSize;
+    font->lineHeight = effectiveSize * 1.2f;
+    font->ascent = effectiveSize * 0.8f;
+    font->descent = effectiveSize * 0.2f;
+
+    for (uint32_t c = 32; c < 128; ++c) {
+        loadGlyph(font.get(), c);
+    }
+
     fonts_[name] = std::move(font);
-    if (!currentFont_) {
+    if (!currentFont_ || name == "default") {
         currentFont_ = fonts_[name].get();
     }
-    
+
     return true;
 }
 
-bool FontRenderer::loadFontFromMemory(const std::string& name, const uint8_t* data, 
+bool FontRenderer::loadFontFromMemory(const std::string& name, const uint8_t* data,
                                        size_t dataSize, float fontSize) {
-    // Would load font from memory buffer
+    (void)data;
+    (void)dataSize;
     return loadFont(name, "", fontSize);
 }
 
@@ -53,23 +58,35 @@ void FontRenderer::setCurrentFont(const std::string& name) {
 }
 
 Vec2 FontRenderer::measureText(const std::string& text, float fontSize) {
-    if (!currentFont_) return Vec2(0, fontSize);
-    
-    float width = 0;
+    if (!currentFont_ || currentFont_->size <= 0.0f) {
+        return Vec2(text.length() * fontSize * 0.5f, fontSize);
+    }
+
+    float maxWidth = 0.0f;
+    float lineWidth = 0.0f;
+    int lineCount = 1;
     float scale = fontSize / currentFont_->size;
-    
-    for (char c : text) {
-        if (c == '\n') continue;
-        
-        auto it = currentFont_->glyphs.find(static_cast<uint32_t>(c));
+
+    for (char ch : text) {
+        if (ch == '\n') {
+            maxWidth = std::max(maxWidth, lineWidth);
+            lineWidth = 0.0f;
+            lineCount++;
+            continue;
+        }
+
+        uint32_t cp = static_cast<unsigned char>(ch);
+        auto it = currentFont_->glyphs.find(cp);
         if (it != currentFont_->glyphs.end()) {
-            width += it->second.advance * scale;
+            lineWidth += it->second.advance * scale;
         } else {
-            width += fontSize * 0.5f; // Approximate width for missing glyph
+            lineWidth += fontSize * 0.5f;
         }
     }
-    
-    return Vec2(width, fontSize);
+    maxWidth = std::max(maxWidth, lineWidth);
+
+    float totalHeight = (lineCount == 1) ? fontSize : (lineCount * currentFont_->lineHeight * scale);
+    return Vec2(maxWidth, totalHeight);
 }
 
 float FontRenderer::measureTextWidth(const std::string& text, float fontSize) {
@@ -81,35 +98,30 @@ float FontRenderer::measureTextHeight(float fontSize) {
 }
 
 void FontRenderer::drawText(const std::string& text, float x, float y, const Color& color) {
+    (void)color;
     if (!currentFont_) return;
-    
+
     float cursorX = x;
     float cursorY = y;
-    float scale = currentFont_->size > 0 ? 14.0f / currentFont_->size : 1.0f;
-    
-    for (char c : text) {
-        if (c == '\n') {
+    float scale = currentFont_->size > 0.0f ? 14.0f / currentFont_->size : 1.0f;
+
+    for (char ch : text) {
+        if (ch == '\n') {
             cursorX = x;
             cursorY += currentFont_->lineHeight * scale;
             continue;
         }
-        
-        auto it = currentFont_->glyphs.find(static_cast<uint32_t>(c));
+
+        uint32_t cp = static_cast<unsigned char>(ch);
+        auto it = currentFont_->glyphs.find(cp);
         if (it != currentFont_->glyphs.end()) {
             const Glyph& glyph = it->second;
-            
-            float glyphX = cursorX + glyph.bearingX * scale;
-            float glyphY = cursorY - glyph.bearingY * scale;
-            float glyphW = glyph.width * scale;
-            float glyphH = glyph.height * scale;
-            
-            // Would render glyph texture here
             cursorX += glyph.advance * scale;
         } else {
-            // Draw placeholder for missing glyph
             cursorX += currentFont_->size * 0.5f * scale;
         }
     }
+    (void)cursorY;
 }
 
 void FontRenderer::drawText(const std::string& text, float x, float y, 

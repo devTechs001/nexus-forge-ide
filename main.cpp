@@ -17,23 +17,35 @@
 
 // Platform-specific entry points
 #if defined(_WIN32) || defined(_WIN64)
-    #define NEXUS_PLATFORM_WINDOWS
+    #ifndef NEXUS_PLATFORM_WINDOWS
+        #define NEXUS_PLATFORM_WINDOWS
+    #endif
     #include <Windows.h>
 #elif defined(__ANDROID__)
-    #define NEXUS_PLATFORM_ANDROID
+    #ifndef NEXUS_PLATFORM_ANDROID
+        #define NEXUS_PLATFORM_ANDROID
+    #endif
     #include <android/native_activity.h>
     #include <jni.h>
 #elif defined(__APPLE__)
     #include <TargetConditionals.h>
     #if TARGET_OS_IPHONE
-        #define NEXUS_PLATFORM_IOS
+        #ifndef NEXUS_PLATFORM_IOS
+            #define NEXUS_PLATFORM_IOS
+        #endif
     #else
-        #define NEXUS_PLATFORM_MACOS
+        #ifndef NEXUS_PLATFORM_MACOS
+            #define NEXUS_PLATFORM_MACOS
+        #endif
     #endif
 #elif defined(__linux__)
-    #define NEXUS_PLATFORM_LINUX
+    #ifndef NEXUS_PLATFORM_LINUX
+        #define NEXUS_PLATFORM_LINUX
+    #endif
 #elif defined(__EMSCRIPTEN__)
-    #define NEXUS_PLATFORM_WEB
+    #ifndef NEXUS_PLATFORM_WEB
+        #define NEXUS_PLATFORM_WEB
+    #endif
     #include <emscripten.h>
 #endif
 
@@ -141,8 +153,22 @@ NexusForgeApp::~NexusForgeApp() {
 
 int NexusForgeApp::run(int argc, char* argv[]) {
     // Parse command line arguments
+    commandLineArgs_.clear();
     for (int i = 0; i < argc; ++i) {
-        commandLineArgs_.push_back(argv[i]);
+        std::string arg = argv[i] ? argv[i] : "";
+        commandLineArgs_.push_back(arg);
+        if (i > 0 && (arg == "--version" || arg == "-v")) {
+            std::cout << APP_NAME << " " << APP_VERSION
+                      << " (" << APP_CODENAME << ", build " << APP_BUILD << ")" << std::endl;
+            return 0;
+        }
+        if (i > 0 && (arg == "--help" || arg == "-h")) {
+            std::cout << "Usage: NexusForge [options] [files...]\n"
+                      << "Options:\n"
+                      << "  -h, --help       Show this help message and exit\n"
+                      << "  -v, --version    Show version information and exit\n";
+            return 0;
+        }
     }
 
     try {
@@ -218,6 +244,8 @@ void NexusForgeApp::shutdown() {
     mainWindow_.reset();
     settings_.reset();
     engine_.reset();
+
+    Platform::PlatformAbstraction::shutdown();
 }
 
 bool NexusForgeApp::initializePlatform() {
@@ -227,6 +255,8 @@ bool NexusForgeApp::initializePlatform() {
 bool NexusForgeApp::initializeCore() {
     engine_ = std::make_unique<Core::NexusEngine>();
     settings_ = std::make_unique<Config::SettingsManager>();
+    auto paths = Platform::PlatformAbstraction::getDirectoryPaths();
+    settings_->initialize(paths.appDataDir);
 
     Core::EngineConfig config;
     config.appName = APP_NAME;
@@ -240,7 +270,13 @@ bool NexusForgeApp::initializeCore() {
 
 bool NexusForgeApp::initializeUI() {
     mainWindow_ = std::make_unique<UI::MainWindow>();
-    return mainWindow_->initialize(engine_.get(), settings_.get());
+    if (!mainWindow_->initialize(engine_.get(), settings_.get())) {
+        return false;
+    }
+    mainWindow_->onClose = [this]() {
+        if (engine_) engine_->requestQuit();
+    };
+    return true;
 }
 
 bool NexusForgeApp::loadExtensions() {
@@ -271,7 +307,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 }
 #endif
 
-#ifdef NEXUS_PLATFORM_ANDROID
+#if defined(NEXUS_PLATFORM_ANDROID) && !defined(NEXUS_HAS_JNI_BRIDGE)
 extern "C" {
     JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         return JNI_VERSION_1_6;

@@ -1,29 +1,36 @@
 // core/platform/platform_abstraction.cpp
 #include "platform_abstraction.hpp"
+
+#ifndef NEXUS_PLATFORM_LINUX
+
 #include <chrono>
 #include <thread>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
+#include <fstream>
+#include <sstream>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <dirent.h>
-#include <pwd.h>
-#include <unistd.h>
 
 #if defined(_WIN32) || defined(_WIN64)
     #define NOMINMAX
     #include <windows.h>
     #include <shlobj.h>
+    #include <shellapi.h>
     #include <direct.h>
-#elif defined(__linux__)
-    #include <unistd.h>
+#else
+    #include <dirent.h>
     #include <pwd.h>
-    #include <sys/types.h>
-#elif defined(__APPLE__)
     #include <unistd.h>
-    #include <pwd.h>
-    #include <sys/types.h>
-    #include <mach-o/dyld.h>
+    #include <sys/wait.h>
+    #include <pthread.h>
+    #if defined(__linux__)
+        #include <sys/syscall.h>
+    #elif defined(__APPLE__)
+        #include <TargetConditionals.h>
+        #include <mach-o/dyld.h>
+    #endif
 #endif
 
 namespace NexusForge::Platform {
@@ -34,19 +41,18 @@ bool PlatformAbstraction::initialized_ = false;
 bool PlatformAbstraction::initialize() {
 #if defined(_WIN32) || defined(_WIN64)
     currentPlatform_ = PlatformType::Windows;
-#elif defined(__linux__) && !defined(__ANDROID__)
-    currentPlatform_ = PlatformType::Linux;
+#elif defined(__ANDROID__)
+    currentPlatform_ = PlatformType::Android;
 #elif defined(__APPLE__)
-    #include <TargetConditionals.h>
     #if TARGET_OS_IPHONE
         currentPlatform_ = PlatformType::iOS;
     #else
         currentPlatform_ = PlatformType::MacOS;
     #endif
-#elif defined(__ANDROID__)
-    currentPlatform_ = PlatformType::Android;
 #elif defined(__EMSCRIPTEN__)
     currentPlatform_ = PlatformType::Web;
+#else
+    currentPlatform_ = PlatformType::Linux;
 #endif
 
     initialized_ = true;
@@ -87,28 +93,49 @@ SystemInfo PlatformAbstraction::getSystemInfo() {
 
 DirectoryPaths PlatformAbstraction::getDirectoryPaths() {
     DirectoryPaths paths;
-    
+
+#ifdef _WIN32
+    const char* home = getenv("USERPROFILE");
+    paths.homeDir = home ? home : ".";
+    const char* appData = getenv("APPDATA");
+    paths.configDir = appData ? appData : (paths.homeDir + "/AppData/Roaming");
+    paths.dataDir = paths.configDir;
+    const char* localAppData = getenv("LOCALAPPDATA");
+    paths.cacheDir = localAppData ? (std::string(localAppData) + "/NexusForge/Cache") : (paths.homeDir + "/.cache");
+    const char* tmp = getenv("TEMP");
+    paths.tempDir = tmp ? tmp : "C:/Temp";
+#else
     const char* home = getenv("HOME");
     if (!home) {
-        home = getpwuid(getuid())->pw_dir;
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_dir) {
+            home = pw->pw_dir;
+        }
     }
-    paths.homeDir = home ? home : "/root";
+    paths.homeDir = home ? home : "/tmp";
     paths.dataDir = paths.homeDir + "/.local/share";
     paths.configDir = paths.homeDir + "/.config";
     paths.cacheDir = paths.homeDir + "/.cache";
     paths.tempDir = "/tmp";
+#endif
     paths.documentsDir = paths.homeDir + "/Documents";
     paths.downloadsDir = paths.homeDir + "/Downloads";
     paths.appDataDir = paths.configDir + "/NexusForge";
-    
+
     return paths;
 }
 
 std::string PlatformAbstraction::getCurrentWorkingDirectory() {
     char buffer[4096];
+#ifdef _WIN32
+    if (_getcwd(buffer, sizeof(buffer))) {
+        return std::string(buffer);
+    }
+#else
     if (getcwd(buffer, sizeof(buffer))) {
         return std::string(buffer);
     }
+#endif
     return ".";
 }
 
@@ -321,26 +348,127 @@ void PlatformAbstraction::setThreadName(const std::string& name) {
 
 int PlatformAbstraction::getCurrentThreadId() {
 #ifdef _WIN32
-    return GetCurrentThreadId();
+    return static_cast<int>(GetCurrentThreadId());
+#elif defined(__linux__) && defined(SYS_gettid)
+    return static_cast<int>(syscall(SYS_gettid));
 #else
-    return gettid();
+    return static_cast<int>(std::hash<std::thread::id>{}(std::this_thread::get_id()));
 #endif
 }
 
 std::string PlatformAbstraction::getHostname() {
     char hostname[256];
-    if (gethostname(hostname, sizeof(hostname)) == 0) {
+#ifdef _WIN32
+    DWORD size = sizeof(hostname);
+    if (GetComputerNameA(hostname, &size)) {
         return hostname;
     }
+#else
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        hostname[sizeof(hostname) - 1] = '\0';
+        return hostname;
+    }
+#endif
     return "localhost";
 }
 
 std::string PlatformAbstraction::getUserName() {
+#ifdef _WIN32
+    const char* user = getenv("USERNAME");
+    return user ? user : "unknown";
+#else
     const char* user = getenv("USER");
     if (!user) {
-        user = getpwuid(getuid())->pw_name;
+        struct passwd* pw = getpwuid(getuid());
+        if (pw && pw->pw_name) {
+            user = pw->pw_name;
+        }
     }
     return user ? user : "unknown";
+#endif
+}
+
+bool PlatformAbstraction::copyFile(const std::string& source, const std::string& dest) {
+    std::ifstream src(source, std::ios::binary);
+    if (!src.is_open()) return false;
+    std::ofstream dst(dest, std::ios::binary);
+    if (!dst.is_open()) return false;
+    dst << src.rdbuf();
+    return dst.good();
+}
+
+bool PlatformAbstraction::moveFile(const std::string& source, const std::string& dest) {
+    return std::rename(source.c_str(), dest.c_str()) == 0;
+}
+
+std::string PlatformAbstraction::joinPath(const std::string& path1, const std::string& path2) {
+    if (path1.empty()) return path2;
+    if (path2.empty()) return path1;
+    if (path2[0] == '/' || path2[0] == '\\') return path2;
+    char back = path1.back();
+    if (back == '/' || back == '\\') return path1 + path2;
+    return path1 + "/" + path2;
+}
+
+std::string PlatformAbstraction::readFile(const std::string& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) return "";
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+bool PlatformAbstraction::writeFile(const std::string& path, const std::string& content) {
+    std::ofstream file(path);
+    if (!file.is_open()) return false;
+    file << content;
+    return file.good();
+}
+
+std::vector<char> PlatformAbstraction::readBinaryFile(const std::string& path) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) return {};
+    std::streampos pos = file.tellg();
+    if (pos <= 0) return {};
+    std::streamsize size = static_cast<std::streamsize>(pos);
+    file.seekg(0, std::ios::beg);
+    std::vector<char> buffer(static_cast<size_t>(size));
+    if (!file.read(buffer.data(), size)) {
+        buffer.resize(static_cast<size_t>(file.gcount()));
+    }
+    return buffer;
+}
+
+bool PlatformAbstraction::writeBinaryFile(const std::string& path, const std::vector<char>& data) {
+    std::ofstream file(path, std::ios::binary);
+    if (!file.is_open()) return false;
+    if (!data.empty()) {
+        file.write(data.data(), static_cast<std::streamsize>(data.size()));
+    }
+    return file.good();
+}
+
+ProcessInfo PlatformAbstraction::getCurrentProcessInfo() {
+    ProcessInfo info;
+    info.pid = getCurrentProcessId();
+    info.name = "NexusForge";
+    return info;
+}
+
+std::vector<std::string> PlatformAbstraction::getCommandLineArguments() {
+    return {};
+}
+
+uint64_t PlatformAbstraction::getCurrentTimeMillis() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count());
+}
+
+uint64_t PlatformAbstraction::getCurrentTimeMicros() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count());
 }
 
 bool PlatformAbstraction::isNetworkAvailable() {
@@ -417,4 +545,65 @@ PlatformAbstraction::MessageBoxResult PlatformAbstraction::showMessageBox(
     return MessageBoxResult::OK;
 }
 
+void* PlatformAbstraction::createMainWindow(const std::string& title, int width, int height) {
+    (void)title; (void)width; (void)height;
+    return reinterpret_cast<void*>(1);
+}
+
+void* PlatformAbstraction::createSplashWindow(int width, int height) {
+    (void)width; (void)height;
+    return reinterpret_cast<void*>(2);
+}
+
+void PlatformAbstraction::destroyWindow(void* window) {
+    (void)window;
+}
+
+void PlatformAbstraction::showWindow(void* window) {
+    (void)window;
+}
+
+void PlatformAbstraction::hideWindow(void* window) {
+    (void)window;
+}
+
+void PlatformAbstraction::setWindowTitle(void* window, const char* title) {
+    (void)window; (void)title;
+}
+
+void PlatformAbstraction::setWindowSize(void* window, int width, int height) {
+    (void)window; (void)width; (void)height;
+}
+
+void PlatformAbstraction::setWindowPosition(void* window, int x, int y) {
+    (void)window; (void)x; (void)y;
+}
+
+void PlatformAbstraction::maximizeWindow(void* window) {
+    (void)window;
+}
+
+void PlatformAbstraction::minimizeWindow(void* window) {
+    (void)window;
+}
+
+void PlatformAbstraction::restoreWindow(void* window) {
+    (void)window;
+}
+
+void PlatformAbstraction::setWindowFullscreen(void* window, bool fullscreen) {
+    (void)window; (void)fullscreen;
+}
+
+bool PlatformAbstraction::isWindowFullscreen(void* window) {
+    (void)window;
+    return false;
+}
+
+void* PlatformAbstraction::getNativeWindowHandle(void* window) {
+    return window;
+}
+
 } // namespace NexusForge::Platform
+
+#endif // !NEXUS_PLATFORM_LINUX

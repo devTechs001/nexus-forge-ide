@@ -74,7 +74,7 @@ bool RemoteDevelopment::uploadFile(const std::string& localPath,
     std::string content = buffer.str();
     
     // Upload via SFTP (simulated)
-    return uploadContent(remotePath, content);
+    return !uploadContent(remotePath, content).empty();
 }
 
 bool RemoteDevelopment::downloadFile(const std::string& remotePath,
@@ -368,12 +368,16 @@ ConnectionInfo RemoteDevelopment::parseConnection(const std::string& connectionS
     // Extract port
     size_t colonPos = conn.rfind(':');
     if (colonPos != std::string::npos) {
-        info.port = std::stoi(conn.substr(colonPos + 1));
+        try {
+            info.port = std::stoi(conn.substr(colonPos + 1));
+        } catch (...) {
+            info.port = 22;
+        }
         conn = conn.substr(0, colonPos);
     }
-    
+
     info.host = conn;
-    
+
     return info;
 }
 
@@ -401,5 +405,53 @@ void RemoteDevelopment::setOnFileChanged(std::function<void(const std::string&)>
 void RemoteDevelopment::setOnError(std::function<void(const std::string&)> callback) {
     onError = std::move(callback);
 }
+
+// RemoteDev implementation
+RemoteDev::RemoteDev() = default;
+RemoteDev::~RemoteDev() { disconnect(); }
+bool RemoteDev::connect(const RemoteConfig& config) {
+    config_ = config;
+    connected_ = connectSSH() && connectSFTP();
+    for (auto& cb : connectedCallbacks_) if (cb) cb(connected_);
+    return connected_;
+}
+void RemoteDev::disconnect() {
+    if (!connected_) return;
+    disconnectSFTP();
+    disconnectSSH();
+    connected_ = false;
+    for (auto& cb : disconnectedCallbacks_) if (cb) cb(false);
+}
+std::vector<RemoteFile> RemoteDev::listDirectory(const std::string& path) { (void)path; return {}; }
+bool RemoteDev::downloadFile(const std::string& remotePath, const std::string& localPath) { (void)remotePath; (void)localPath; return connected_; }
+bool RemoteDev::uploadFile(const std::string& localPath, const std::string& remotePath) { (void)localPath; (void)remotePath; return connected_; }
+bool RemoteDev::deleteFile(const std::string& path) { (void)path; return connected_; }
+bool RemoteDev::createDirectory(const std::string& path) { (void)path; return connected_; }
+bool RemoteDev::renameFile(const std::string& oldPath, const std::string& newPath) { (void)oldPath; (void)newPath; return connected_; }
+std::string RemoteDev::executeCommand(const std::string& command) { return connected_ ? ("Command executed: " + command) : ""; }
+void RemoteDev::executeCommandAsync(const std::string& command, std::function<void(const std::string&)> callback) {
+    if (callback) callback(executeCommand(command));
+}
+bool RemoteDev::startPortForward(int localPort, const std::string& remoteHost, int remotePort) {
+    (void)localPort; (void)remoteHost; (void)remotePort;
+    return connected_;
+}
+void RemoteDev::stopPortForward(int localPort) { (void)localPort; }
+void RemoteDev::startSync(const std::string& localPath, const std::string& remotePath) {
+    (void)localPath; (void)remotePath;
+    syncing_ = connected_;
+}
+void RemoteDev::stopSync() { syncing_ = false; }
+void RemoteDev::saveConfig(const RemoteConfig& config) { config_ = config; }
+std::vector<RemoteConfig> RemoteDev::getSavedConfigs() const { return {}; }
+bool RemoteDev::deleteConfig(const std::string& name) { (void)name; return true; }
+void RemoteDev::onConnected(ConnectionCallback callback) { if (callback) connectedCallbacks_.push_back(std::move(callback)); }
+void RemoteDev::onDisconnected(ConnectionCallback callback) { if (callback) disconnectedCallbacks_.push_back(std::move(callback)); }
+void RemoteDev::onFileChanged(FileCallback callback) { if (callback) fileChangedCallbacks_.push_back(std::move(callback)); }
+void RemoteDev::onCommandOutput(OutputCallback callback) { if (callback) commandOutputCallbacks_.push_back(std::move(callback)); }
+bool RemoteDev::connectSSH() { return true; }
+bool RemoteDev::connectSFTP() { return true; }
+void RemoteDev::disconnectSSH() { sshSession_ = nullptr; }
+void RemoteDev::disconnectSFTP() { sftpSession_ = nullptr; }
 
 } // namespace NexusForge::Networking

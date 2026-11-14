@@ -19,7 +19,7 @@ enum class ResultType {
 
 // Search result
 struct SearchResult {
-    ResultType type;
+    ResultType type = ResultType::TextMatch;
     std::string filePath;
     std::string fileName;
     size_t lineNumber = 0;

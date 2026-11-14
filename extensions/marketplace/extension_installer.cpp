@@ -87,26 +87,4 @@ void ExtensionInstaller::notifyStatus(const std::string& status) {
     if (statusCallback_) statusCallback_("", status);
 }
 
-MarketplaceClient::MarketplaceClient() = default;
-MarketplaceClient::~MarketplaceClient() = default;
-
-std::vector<ExtensionPackage> MarketplaceClient::search(const std::string& query,
-                                                         const std::vector<std::string>& categories) {
-    return {};
-}
-
-std::vector<ExtensionPackage> MarketplaceClient::getPopular(int count) { return {}; }
-std::vector<ExtensionPackage> MarketplaceClient::getTrending(int count) { return {}; }
-std::vector<ExtensionPackage> MarketplaceClient::getNew(int count) { return {}; }
-std::vector<ExtensionPackage> MarketplaceClient::getByCategory(const std::string& category) { return {}; }
-std::vector<ExtensionPackage> MarketplaceClient::getByPublisher(const std::string& publisher) { return {}; }
-
-ExtensionPackage MarketplaceClient::getDetails(const std::string& extensionId) { return {}; }
-std::string MarketplaceClient::getReadme(const std::string& extensionId) { return ""; }
-std::vector<std::string> MarketplaceClient::getVersions(const std::string& extensionId) { return {}; }
-std::string MarketplaceClient::getDownloadUrl(const std::string& extensionId, const std::string& version) { return ""; }
-
-void MarketplaceClient::setApiEndpoint(const std::string& url) { apiEndpoint_ = url; }
-void MarketplaceClient::setApiKey(const std::string& key) { apiKey_ = key; }
-
 } // namespace NexusForge::Extensions

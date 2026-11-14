@@ -6,6 +6,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 
 namespace NexusForge::Editor {
 
@@ -236,30 +237,100 @@ std::vector<GitRemote> GitIntegration::getRemotes() {
 }
 
 bool GitIntegration::isRepository(const std::string& path) {
-    std::string gitDir = path + "/.git";
-    
-    std::ifstream file(gitDir);
-    return file.good();
+    std::error_code ec;
+    return std::filesystem::exists(path + "/.git", ec);
 }
 
 std::string GitIntegration::findRepositoryRoot(const std::string& startPath) {
     std::string currentPath = startPath;
-    
-    while (!currentPath.empty() && currentPath != "/") {
+    while (!currentPath.empty()) {
         if (isRepository(currentPath)) {
             return currentPath;
         }
-        
-        // Go up one directory
-        size_t lastSlash = currentPath.rfind('/');
+        if (currentPath == "/") break;
+        size_t lastSlash = currentPath.find_last_of("/\\");
         if (lastSlash != std::string::npos) {
-            currentPath = currentPath.substr(0, lastSlash);
+            currentPath = (lastSlash == 0) ? "/" : currentPath.substr(0, lastSlash);
         } else {
             break;
         }
     }
-    
     return "";
+}
+
+bool GitIntegration::openRepository(const std::string& path) {
+    if (!initialize(path)) return false;
+    repoPath_ = path;
+    gitPath_ = path + "/.git";
+    notifyChanged();
+    return true;
+}
+
+void GitIntegration::closeRepository() {
+    initialized_ = false;
+    detachedHead_ = false;
+    workingDirectory_.clear();
+    repoPath_.clear();
+    gitPath_.clear();
+    currentBranch_.clear();
+    notifyChanged();
+}
+
+std::vector<GitFileInfo> GitIntegration::getFileStatuses() const {
+    return {};
+}
+
+GitFileInfo GitIntegration::getFileStatus(const std::string& path) const {
+    GitFileInfo info;
+    info.path = path;
+    return info;
+}
+
+bool GitIntegration::isGitRepository(const std::string& path) const {
+    return isRepository(path);
+}
+
+BranchInfo GitIntegration::getCurrentBranch() const {
+    BranchInfo info;
+    info.name = currentBranch_;
+    info.isDetached = detachedHead_;
+    return info;
+}
+
+std::vector<std::string> GitIntegration::getRemoteBranches() const { return {}; }
+bool GitIntegration::checkoutBranch(const std::string& name) { return checkout(name); }
+bool GitIntegration::deleteBranch(const std::string& name) { (void)name; return initialized_; }
+bool GitIntegration::fetch(const std::string& remote) { (void)remote; return initialized_; }
+bool GitIntegration::stageAll() { return initialized_; }
+bool GitIntegration::unstageAll() { return initialized_; }
+bool GitIntegration::amendCommit(const std::string& message) { return commit(message); }
+CommitInfo GitIntegration::getCommit(const std::string& hash) const { CommitInfo c; c.hash = hash; return c; }
+FileDiff GitIntegration::getFileDiff(const std::string& path) const { FileDiff d; d.oldPath = path; d.newPath = path; return d; }
+FileDiff GitIntegration::getStagedDiff(const std::string& path) const { FileDiff d; d.oldPath = path; d.newPath = path; return d; }
+FileDiff GitIntegration::getDiffBetweenCommits(const std::string& from, const std::string& to) const { (void)from; (void)to; return {}; }
+std::string GitIntegration::getFileAtCommit(const std::string& path, const std::string& commitRef) const { (void)path; (void)commitRef; return ""; }
+std::vector<GitIntegration::BlameLine> GitIntegration::blame(const std::string& path) const { (void)path; return {}; }
+bool GitIntegration::stash(const std::string& message) { (void)message; return initialized_; }
+bool GitIntegration::stashPop() { return initialized_; }
+bool GitIntegration::stashApply(const std::string& stashRef) { (void)stashRef; return initialized_; }
+std::vector<std::string> GitIntegration::getStashes() const { return {}; }
+bool GitIntegration::abortMerge() { return initialized_; }
+std::vector<std::string> GitIntegration::getMergeConflicts() const { return {}; }
+bool GitIntegration::markResolved(const std::string& path) { (void)path; return initialized_; }
+
+void GitIntegration::addChangeListener(RepositoryChangedCallback callback) {
+    if (callback) listeners_.push_back(std::move(callback));
+}
+
+std::string GitIntegration::executeGitCommand(const std::vector<std::string>& args) const {
+    (void)args;
+    return "";
+}
+
+void GitIntegration::notifyChanged() {
+    for (const auto& cb : listeners_) {
+        if (cb) cb();
+    }
 }
 
 } // namespace NexusForge::Editor

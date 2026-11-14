@@ -260,12 +260,16 @@ std::string LiveShare::loadDocumentContent(const std::string& path) {
 }
 
 void LiveShare::applyChange(std::string& content, const TextChange& change) {
+    size_t pos = std::min(change.position, content.size());
+    size_t maxLen = content.size() - pos;
+    size_t len = std::min(change.length, maxLen);
+
     if (change.type == TextChangeType::Insert) {
-        content.insert(change.position, change.text);
+        content.insert(pos, change.text);
     } else if (change.type == TextChangeType::Delete) {
-        content.erase(change.position, change.length);
+        content.erase(pos, len);
     } else if (change.type == TextChangeType::Replace) {
-        content.replace(change.position, change.length, change.text);
+        content.replace(pos, len, change.text);
     }
 }
 
@@ -383,7 +387,90 @@ void LiveShare::broadcastTerminalOutput(const std::string& terminalId,
 
 void LiveShare::broadcastTerminalInput(const std::string& terminalId,
                                         const std::string& input) {
-    // Send input to host for execution
+    (void)terminalId;
+    (void)input;
+}
+
+// LiveShareSession implementation
+LiveShareSession::LiveShareSession() = default;
+LiveShareSession::~LiveShareSession() { stopHosting(); leaveSession(); }
+
+bool LiveShareSession::startHosting(const std::string& sessionName) {
+    sessionId_ = sessionName;
+    hosting_ = true;
+    return true;
+}
+
+void LiveShareSession::stopHosting() { hosting_ = false; }
+
+bool LiveShareSession::joinSession(const std::string& sessionId, const std::string& password) {
+    (void)password;
+    sessionId_ = sessionId;
+    joined_ = true;
+    return true;
+}
+
+void LiveShareSession::leaveSession() { joined_ = false; }
+
+Participant* LiveShareSession::getParticipant(const std::string& id) {
+    for (auto& p : participants_) if (p.id == id) return &p;
+    return nullptr;
+}
+
+Participant* LiveShareSession::getHost() {
+    for (auto& p : participants_) if (p.isHost) return &p;
+    return nullptr;
+}
+
+void LiveShareSession::shareDocument(const std::string& path, const std::string& content) {
+    sendOperation("share", path + ":" + content);
+}
+void LiveShareSession::unshareDocument(const std::string& path) { sendOperation("unshare", path); }
+void LiveShareSession::updateDocument(const std::string& path, const std::string& content) {
+    sendOperation("update", path + ":" + content);
+}
+void LiveShareSession::updateCursor(size_t position) { sendOperation("cursor", std::to_string(position)); }
+void LiveShareSession::broadcastCursor(const std::string& participantId, size_t position) {
+    if (auto* p = getParticipant(participantId)) p->cursorPosition = position;
+}
+void LiveShareSession::sendMessage(const std::string& message) { sendOperation("chat", message); }
+void LiveShareSession::sendSystemMessage(const std::string& message) { sendOperation("system", message); }
+void LiveShareSession::onParticipantJoined(ParticipantCallback callback) { (void)callback; }
+void LiveShareSession::onParticipantLeft(ParticipantCallback callback) { (void)callback; }
+void LiveShareSession::onMessageReceived(MessageCallback callback) { (void)callback; }
+void LiveShareSession::onDocumentShared(DocumentCallback callback) { (void)callback; }
+void LiveShareSession::onDocumentUpdated(DocumentCallback callback) { (void)callback; }
+void LiveShareSession::handleIncomingMessage(const std::string& message) { (void)message; }
+void LiveShareSession::sendOperation(const std::string& type, const std::string& data) {
+    if (connection_ && connection_->isConnected()) {
+        connection_->send(type + ":" + data);
+    }
+}
+
+// LiveShareServer implementation
+LiveShareServer::LiveShareServer() = default;
+LiveShareServer::~LiveShareServer() { stop(); }
+bool LiveShareServer::start(int port) { port_ = port; running_ = true; return true; }
+void LiveShareServer::stop() { running_ = false; sessions_.clear(); }
+bool LiveShareServer::isRunning() const { return running_; }
+std::vector<CollaborationSession> LiveShareServer::getActiveSessions() const { return sessions_; }
+CollaborationSession* LiveShareServer::getSession(const std::string& id) {
+    for (auto& s : sessions_) if (s.id == id) return &s;
+    return nullptr;
+}
+CollaborationSession* LiveShareServer::createSession(const std::string& name, const std::string& host,
+                                                      const std::string& description) {
+    CollaborationSession s;
+    s.id = "session_" + std::to_string(sessions_.size() + 1);
+    s.name = name;
+    s.host = host;
+    s.description = description;
+    sessions_.push_back(std::move(s));
+    return &sessions_.back();
+}
+void LiveShareServer::closeSession(const std::string& id) {
+    sessions_.erase(std::remove_if(sessions_.begin(), sessions_.end(),
+        [&](const CollaborationSession& s) { return s.id == id; }), sessions_.end());
 }
 
 } // namespace NexusForge::Networking

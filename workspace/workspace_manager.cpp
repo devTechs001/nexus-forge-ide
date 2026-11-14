@@ -20,7 +20,8 @@ WorkspaceManager::~WorkspaceManager() {
 
 bool WorkspaceManager::initialize() {
     sessionsPath_ = getSessionsDirectory();
-    std::filesystem::create_directories(sessionsPath_);
+    std::error_code ec;
+    std::filesystem::create_directories(sessionsPath_, ec);
     return true;
 }
 
@@ -40,12 +41,18 @@ bool WorkspaceManager::openWorkspace(const std::vector<std::string>& folderPaths
 }
 
 bool WorkspaceManager::openFolder(const std::string& path) {
-    if (!std::filesystem::exists(path) || !std::filesystem::is_directory(path)) {
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || !std::filesystem::is_directory(path, ec)) {
         return false;
     }
     WorkspaceFolder folder;
     folder.id = std::to_string(folders_.size());
-    folder.name = path.substr(path.rfind('/') + 1);
+    std::string trimmed = path;
+    while (trimmed.size() > 1 && (trimmed.back() == '/' || trimmed.back() == '\\')) {
+        trimmed.pop_back();
+    }
+    size_t slashPos = trimmed.find_last_of("/\\");
+    folder.name = (slashPos != std::string::npos) ? trimmed.substr(slashPos + 1) : trimmed;
     folder.path = path;
     scanFolder(folder);
     folders_.push_back(std::move(folder));
@@ -121,7 +128,7 @@ std::vector<std::string> WorkspaceManager::getOpenFiles() const {
 void WorkspaceManager::addRecentFile(const std::string& path) {
     auto it = std::remove_if(recentFiles_.begin(), recentFiles_.end(),
         [&](const RecentFile& f) { return f.path == path; });
-    if (it != recentFiles_.end()) recentFiles_.erase(it);
+    if (it != recentFiles_.end()) recentFiles_.erase(it, recentFiles_.end());
     RecentFile rf;
     rf.path = path;
     rf.lastOpened = std::time(nullptr);
@@ -193,12 +200,14 @@ std::vector<FileInfo> WorkspaceManager::listDirectory(const std::string& path) c
 }
 
 bool WorkspaceManager::createDirectory(const std::string& path) {
-    return std::filesystem::create_directories(path);
+    std::error_code ec;
+    return std::filesystem::create_directories(path, ec) && !ec;
 }
 
 bool WorkspaceManager::deleteDirectory(const std::string& path, bool recursive) {
-    if (recursive) return std::filesystem::remove_all(path) > 0;
-    return std::filesystem::remove(path);
+    std::error_code ec;
+    if (recursive) return std::filesystem::remove_all(path, ec) > 0 && !ec;
+    return std::filesystem::remove(path, ec) && !ec;
 }
 
 bool WorkspaceManager::renameFile(const std::string& oldPath, const std::string& newPath) {
@@ -251,9 +260,15 @@ void WorkspaceManager::removeExcludePattern(const std::string& pattern) {
 
 std::string WorkspaceManager::relativePath(const std::string& fullPath) const {
     if (folders_.empty()) return fullPath;
-    const auto& root = folders_[0].path;
-    if (fullPath.find(root) == 0) {
-        return fullPath.substr(root.length() + 1);
+    std::string root = folders_[0].path;
+    while (root.size() > 1 && (root.back() == '/' || root.back() == '\\')) {
+        root.pop_back();
+    }
+    if (fullPath == root) return "";
+    if (fullPath.size() > root.size() &&
+        fullPath.compare(0, root.size(), root) == 0 &&
+        (fullPath[root.size()] == '/' || fullPath[root.size()] == '\\')) {
+        return fullPath.substr(root.size() + 1);
     }
     return fullPath;
 }

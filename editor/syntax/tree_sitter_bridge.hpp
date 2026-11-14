@@ -5,8 +5,59 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <unordered_map>
+#include <tuple>
+#include <cstdint>
+
+#ifdef NEXUS_HAS_TREE_SITTER
+#include <tree_sitter/api.h>
+#else
+struct TSPoint {
+    uint32_t row = 0;
+    uint32_t column = 0;
+};
+struct TSRange {
+    TSPoint start_point;
+    TSPoint end_point;
+    uint32_t start_byte = 0;
+    uint32_t end_byte = 0;
+};
+struct TSLanguage;
+struct TSParser;
+struct TSTree;
+struct TSNode {
+    uint32_t context[4] = {0, 0, 0, 0};
+    const void* id = nullptr;
+    const TSTree* tree = nullptr;
+};
+struct TSLogger {
+    void* payload = nullptr;
+    void (*log)(void* payload, int type, const char* buffer) = nullptr;
+};
+#endif
 
 namespace NexusForge::Editor {
+
+// Tree-sitter highlight entry
+struct TreeSitterHighlight {
+    enum class Category {
+        Keyword,
+        Type,
+        Function,
+        String,
+        Comment,
+        Number,
+        Operator,
+        Identifier
+    };
+
+    std::string type;
+    uint32_t startByte = 0;
+    uint32_t endByte = 0;
+    TSPoint startPoint{};
+    TSPoint endPoint{};
+    Category category = Category::Identifier;
+};
 
 // Tree-sitter node
 struct SyntaxNode {
@@ -25,7 +76,7 @@ struct SyntaxNode {
 
 // Tree-sitter query match
 struct QueryMatch {
-    size_t patternIndex;
+    size_t patternIndex = 0;
     std::vector<SyntaxNode> captures;
     std::unordered_map<std::string, SyntaxNode> captureByName;
 };
@@ -68,18 +119,31 @@ public:
     void shutdown();
 
     // Language
+    bool setLanguage(const std::string& languageId);
     bool loadLanguage(LanguageId language);
     bool loadLanguage(const std::string& name);
     bool loadLanguageFromFile(const std::string& path);
+    bool loadGrammarFromFile(const std::string& path);
     void unloadLanguage();
+    std::vector<std::string> getAvailableLanguages() const;
 
     // Parse
     SyntaxNode parse(const std::string& source);
     SyntaxNode parseFile(const std::string& path);
+    void parseWithOldTree(const std::string& source, const TSRange* ranges, uint32_t rangeCount);
 
     // Incremental parsing
     SyntaxNode parseWithEdits(const std::string& source,
                                const std::vector<std::tuple<size_t, size_t, std::string>>& edits);
+
+    // Tree-sitter low-level helpers
+    std::string getNodeType(TSNode node) const;
+    TSNode getRootNode() const;
+    std::vector<TreeSitterHighlight> getHighlights() const;
+    void setLogger(TSLogger logger);
+    uint32_t getLanguageVersion() const;
+    size_t getSymbolCount() const;
+    std::string getSymbolName(uint32_t symbol) const;
 
     // Query
     bool loadQuery(const std::string& query);
@@ -105,12 +169,18 @@ public:
 
 private:
     LanguageId currentLanguage_ = LanguageId::Unknown;
+    std::string languageName_;
     bool languageLoaded_ = false;
-    void* tree_ = nullptr;
-    void* parser_ = nullptr;
-    void* language_ = nullptr;
+    bool initialized_ = false;
+    TSTree* tree_ = nullptr;
+    TSParser* parser_ = nullptr;
+    const TSLanguage* language_ = nullptr;
     void* query_ = nullptr;
+    SyntaxNode lastParsedRoot_;
 
+    void collectHighlights(TSNode node, std::vector<TreeSitterHighlight>& highlights) const;
+    TreeSitterHighlight::Category categorizeNode(const std::string& nodeType) const;
+    const TSLanguage* getLanguageForId(const std::string& languageId) const;
     std::string nodeTypeToString(int typeId) const;
     void freeTree();
 };

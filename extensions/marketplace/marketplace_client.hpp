@@ -9,6 +9,20 @@
 
 namespace NexusForge::Extensions {
 
+// Extension package info
+struct ExtensionPackage {
+    std::string id;
+    std::string name;
+    std::string version;
+    std::string publisher;
+    std::string description;
+    std::string downloadUrl;
+    std::string sha256;
+    size_t size = 0;
+    std::vector<std::string> platforms;
+    std::vector<std::string> engineVersions;
+};
+
 // Extension version info
 struct ExtensionVersion {
     std::string version;
@@ -165,9 +179,26 @@ public:
     // Helpers
     SearchOptions getDefaultSearchOptions() const;
 
+    // Package-oriented marketplace API
+    std::vector<ExtensionPackage> search(const std::string& query,
+                                          const std::vector<std::string>& categories = {});
+    std::vector<ExtensionPackage> getPopular(int count = 20);
+    std::vector<ExtensionPackage> getTrending(int count = 20);
+    std::vector<ExtensionPackage> getNew(int count = 20);
+    std::vector<ExtensionPackage> getByCategory(const std::string& category);
+    std::vector<ExtensionPackage> getByPublisher(const std::string& publisher);
+    ExtensionPackage getDetails(const std::string& extensionId);
+    std::string getReadme(const std::string& extensionId);
+    std::vector<std::string> getVersions(const std::string& extensionId);
+    std::string getDownloadUrl(const std::string& extensionId, const std::string& version = "");
+    void setApiEndpoint(const std::string& url);
+    void setApiKey(const std::string& key);
+
 private:
     std::string marketplaceUrl_;
     std::string authToken_;
+    std::string apiEndpoint_;
+    std::string apiKey_;
     bool cacheEnabled_ = true;
     bool authenticated_ = false;
 
@@ -178,6 +209,7 @@ private:
     // HTTP helpers (would use networking module in production)
     std::string httpGet(const std::string& url);
     std::string httpPost(const std::string& url, const std::string& data);
+    std::vector<ExtensionPackage> fetchExtensions(const std::string& url);
 };
 
 } // namespace NexusForge::Extensions

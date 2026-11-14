@@ -101,20 +101,33 @@ void onNativeActivityLowMemory(ANativeActivity* activity) {
 JNIEXPORT void JNICALL
 Java_com_nexusforge_ide_NexusActivity_nativeInit(JNIEnv* env, jobject thiz) {
     LOGI("Native init called");
-    
-    // Store activity reference
-    g_activity = env->NewGlobalRef(thiz);
-    
+
+    // Replace any previous activity reference safely
+    if (g_activity) {
+        env->DeleteGlobalRef(g_activity);
+        g_activity = nullptr;
+    }
+    if (thiz) {
+        g_activity = env->NewGlobalRef(thiz);
+    }
+
+    // Replace any previous engine instance cleanly
+    if (g_engine) {
+        g_engine->shutdown();
+        delete g_engine;
+        g_engine = nullptr;
+    }
+
     // Initialize engine
     g_engine = new NexusForge::Core::NexusEngine();
-    
+
     NexusForge::Core::EngineConfig config;
     config.appName = "NexusForge IDE";
     config.appVersion = "1.0.0";
     config.dataPath = "/data/data/com.nexusforge.ide/files";
     config.cachePath = "/data/data/com.nexusforge.ide/cache";
     config.extensionsPath = "/data/data/com.nexusforge.ide/files/extensions";
-    
+
     if (!g_engine->initialize(config)) {
         LOGE("Failed to initialize engine");
     }
@@ -123,7 +136,7 @@ Java_com_nexusforge_ide_NexusActivity_nativeInit(JNIEnv* env, jobject thiz) {
 JNIEXPORT void JNICALL
 Java_com_nexusforge_ide_NexusActivity_nativeRun(JNIEnv* env, jobject thiz) {
     LOGI("Native run called");
-    
+
     if (g_engine) {
         g_engine->runMainLoop();
     }
@@ -132,9 +145,15 @@ Java_com_nexusforge_ide_NexusActivity_nativeRun(JNIEnv* env, jobject thiz) {
 JNIEXPORT void JNICALL
 Java_com_nexusforge_ide_NexusActivity_nativeShutdown(JNIEnv* env, jobject thiz) {
     LOGI("Native shutdown called");
-    
+
     if (g_engine) {
         g_engine->shutdown();
+        delete g_engine;
+        g_engine = nullptr;
+    }
+    if (g_activity) {
+        env->DeleteGlobalRef(g_activity);
+        g_activity = nullptr;
     }
 }
 
@@ -149,10 +168,10 @@ Java_com_nexusforge_ide_NexusActivity_nativeResume(JNIEnv* env, jobject thiz) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_nexusforge_ide_NexusActivity_nativeResize(JNIEnv* env, jobject thiz, 
+Java_com_nexusforge_ide_NexusActivity_nativeResize(JNIEnv* env, jobject thiz,
                                                     jint width, jint height) {
     LOGI("Native resize: %dx%d", width, height);
-    
+
     // Handle window resize
 }
 
@@ -178,35 +197,39 @@ Java_com_nexusforge_ide_NexusActivity_nativeSetAssetManager(JNIEnv* env, jobject
 
 JNIEXPORT void JNICALL
 Java_com_nexusforge_ide_NexusActivity_nativeSetDataPath(JNIEnv* env, jobject thiz,
-                                                         jstring internalPath, 
+                                                         jstring internalPath,
                                                          jstring externalPath) {
-    const char* internal = env->GetStringUTFChars(internalPath, nullptr);
-    const char* external = env->GetStringUTFChars(externalPath, nullptr);
-    
-    LOGI("Data paths: internal=%s, external=%s", internal, external);
-    
-    env->ReleaseStringUTFChars(internalPath, internal);
-    env->ReleaseStringUTFChars(externalPath, external);
+    const char* internal = internalPath ? env->GetStringUTFChars(internalPath, nullptr) : nullptr;
+    const char* external = externalPath ? env->GetStringUTFChars(externalPath, nullptr) : nullptr;
+
+    LOGI("Data paths: internal=%s, external=%s",
+         internal ? internal : "",
+         external ? external : "");
+
+    if (internalPath && internal) env->ReleaseStringUTFChars(internalPath, internal);
+    if (externalPath && external) env->ReleaseStringUTFChars(externalPath, external);
 }
 
 JNIEXPORT void JNICALL
 Java_com_nexusforge_ide_NexusActivity_nativeOpenFile(JNIEnv* env, jobject thiz,
                                                       jstring path) {
+    if (!path) return;
     const char* filePath = env->GetStringUTFChars(path, nullptr);
+    if (!filePath) return;
     LOGI("Opening file: %s", filePath);
-    
+
     // Open file in editor
-    
+
     env->ReleaseStringUTFChars(path, filePath);
 }
 
 JNIEXPORT void JNICALL
-Java_com_nexusforge_ide_NexusActivity_nativeKeyboardVisibilityChanged(JNIEnv* env, 
+Java_com_nexusforge_ide_NexusActivity_nativeKeyboardVisibilityChanged(JNIEnv* env,
                                                                        jobject thiz,
                                                                        jboolean visible,
                                                                        jint height) {
     LOGI("Keyboard %s, height=%d", visible ? "shown" : "hidden", height);
-    
+
     // Adjust UI for keyboard
 }
 
@@ -219,9 +242,55 @@ Java_com_nexusforge_ide_NexusActivity_nativeGetClipboardText(JNIEnv* env, jobjec
 JNIEXPORT void JNICALL
 Java_com_nexusforge_ide_NexusActivity_nativeSetClipboardText(JNIEnv* env, jobject thiz,
                                                               jstring text) {
+    if (!text) return;
     const char* textStr = env->GetStringUTFChars(text, nullptr);
+    if (!textStr) return;
     // Set clipboard text
     env->ReleaseStringUTFChars(text, textStr);
+}
+
+// Matching JNI exports for NexusJNIBridge class (delegating to NexusActivity handlers)
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeInit(JNIEnv* env, jobject thiz) {
+    Java_com_nexusforge_ide_NexusActivity_nativeInit(env, thiz);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeRun(JNIEnv* env, jobject thiz) {
+    Java_com_nexusforge_ide_NexusActivity_nativeRun(env, thiz);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeShutdown(JNIEnv* env, jobject thiz) {
+    Java_com_nexusforge_ide_NexusActivity_nativeShutdown(env, thiz);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativePause(JNIEnv* env, jobject thiz) {
+    Java_com_nexusforge_ide_NexusActivity_nativePause(env, thiz);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeResume(JNIEnv* env, jobject thiz) {
+    Java_com_nexusforge_ide_NexusActivity_nativeResume(env, thiz);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeResize(JNIEnv* env, jobject thiz, jint width, jint height) {
+    Java_com_nexusforge_ide_NexusActivity_nativeResize(env, thiz, width, height);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeKeyEvent(JNIEnv* env, jobject thiz, jint action, jint keyCode, jint metaState) {
+    Java_com_nexusforge_ide_NexusActivity_nativeKeyEvent(env, thiz, action, keyCode, metaState);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeTouchEvent(JNIEnv* env, jobject thiz, jint action, jint pointerId, jfloat x, jfloat y, jfloat pressure) {
+    Java_com_nexusforge_ide_NexusActivity_nativeTouchEvent(env, thiz, action, pointerId, x, y, pressure);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeSetAssetManager(JNIEnv* env, jobject thiz, jobject assetManager) {
+    Java_com_nexusforge_ide_NexusActivity_nativeSetAssetManager(env, thiz, assetManager);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeSetDataPath(JNIEnv* env, jobject thiz, jstring internalPath, jstring externalPath) {
+    Java_com_nexusforge_ide_NexusActivity_nativeSetDataPath(env, thiz, internalPath, externalPath);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeOpenFile(JNIEnv* env, jobject thiz, jstring path) {
+    Java_com_nexusforge_ide_NexusActivity_nativeOpenFile(env, thiz, path);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeKeyboardVisibilityChanged(JNIEnv* env, jobject thiz, jboolean visible, jint height) {
+    Java_com_nexusforge_ide_NexusActivity_nativeKeyboardVisibilityChanged(env, thiz, visible, height);
+}
+JNIEXPORT jstring JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeGetClipboardText(JNIEnv* env, jobject thiz) {
+    return Java_com_nexusforge_ide_NexusActivity_nativeGetClipboardText(env, thiz);
+}
+JNIEXPORT void JNICALL Java_com_nexusforge_ide_NexusJNIBridge_nativeSetClipboardText(JNIEnv* env, jobject thiz, jstring text) {
+    Java_com_nexusforge_ide_NexusActivity_nativeSetClipboardText(env, thiz, text);
 }
 
 } // extern "C"

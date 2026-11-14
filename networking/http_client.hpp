@@ -1,6 +1,7 @@
 // networking/http_client.hpp
 #pragma once
 
+#include "websocket_client.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -8,8 +9,40 @@
 #include <memory>
 #include <future>
 #include <optional>
+#include <cstdint>
 
 namespace NexusForge::Networking {
+
+// URL utilities
+struct URL {
+    std::string protocol;
+    std::string host;
+    int port = 80;
+    std::string path = "/";
+    std::string query;
+    std::string fragment;
+    std::string username;
+    std::string password;
+
+    static URL parse(const std::string& urlString);
+    std::string toString() const;
+    std::unordered_map<std::string, std::string> parseQuery() const;
+    void setQuery(const std::unordered_map<std::string, std::string>& params);
+};
+using Url = URL;
+
+// Multipart form data container
+struct MultipartFile {
+    std::string name;
+    std::string filename;
+    std::string contentType;
+    std::string content;
+};
+
+struct MultipartFormData {
+    std::unordered_map<std::string, std::string> fields;
+    std::vector<MultipartFile> files;
+};
 
 // HTTP Methods
 enum class HttpMethod {
@@ -72,6 +105,7 @@ using HttpHeaders = std::unordered_map<std::string, std::string>;
 // HTTP Request
 struct HttpRequest {
     HttpMethod method = HttpMethod::GET;
+    std::string methodName = "GET";
     std::string url;
     std::string path;
     std::string host;
@@ -121,12 +155,14 @@ struct HttpResponse {
     int statusCodeInt = 0;
     std::string statusMessage;
     std::string httpVersion;
+    std::string url;
 
     HttpHeaders headers;
     std::string body;
     std::vector<uint8_t> rawBody;
 
     bool success = false;
+    std::string error;
     std::string errorMessage;
     std::string errorCode;
 
@@ -160,8 +196,14 @@ public:
     ~HttpClient();
 
     // Configuration
-    void setDefaultTimeout(int timeoutMs) { defaultTimeout_ = timeoutMs; }
-    void setDefaultUserAgent(const std::string& userAgent) { defaultUserAgent_ = userAgent; }
+    void setTimeout(int timeoutMs);
+    int getTimeout() const;
+    void setDefaultTimeout(int timeoutMs) { setTimeout(timeoutMs); }
+    void setUserAgent(const std::string& userAgent);
+    void setDefaultUserAgent(const std::string& userAgent) { setUserAgent(userAgent); }
+    void setDefaultHeader(const std::string& key, const std::string& value);
+    void removeDefaultHeader(const std::string& key);
+    void clearDefaultHeaders();
     void setVerifySSL(bool verify) { verifySSL_ = verify; }
     void setProxy(const std::string& host, int port,
                   const std::string& username = "", const std::string& password = "");
@@ -170,13 +212,19 @@ public:
     // Synchronous requests
     HttpResponse get(const std::string& url, const HttpHeaders& headers = {});
     HttpResponse post(const std::string& url, const std::string& body = "",
-                      const std::string& contentType = "application/json",
+                      const HttpHeaders& headers = {});
+    HttpResponse post(const std::string& url, const std::string& body,
+                      const std::string& contentType,
                       const HttpHeaders& headers = {});
     HttpResponse put(const std::string& url, const std::string& body = "",
-                     const std::string& contentType = "application/json",
+                     const HttpHeaders& headers = {});
+    HttpResponse put(const std::string& url, const std::string& body,
+                     const std::string& contentType,
                      const HttpHeaders& headers = {});
     HttpResponse patch(const std::string& url, const std::string& body = "",
-                       const std::string& contentType = "application/json",
+                       const HttpHeaders& headers = {});
+    HttpResponse patch(const std::string& url, const std::string& body,
+                       const std::string& contentType,
                        const HttpHeaders& headers = {});
     HttpResponse del(const std::string& url, const HttpHeaders& headers = {});
     HttpResponse head(const std::string& url, const HttpHeaders& headers = {});
@@ -209,36 +257,40 @@ public:
         std::string name;
         std::string filename;
         std::string contentType;
-        std::string content;  // For text data
-        std::vector<uint8_t> binaryContent;  // For file data
+        std::string content;
+        std::vector<uint8_t> binaryContent;
         bool isFile = false;
     };
     HttpResponse postMultipart(const std::string& url,
                                 const std::vector<MultipartPart>& parts,
                                 const HttpHeaders& headers = {});
+    std::string buildMultipartFormData(const MultipartFormData& formData, std::string& contentType);
 
-    // WebSocket support
-    struct WebSocketOptions {
-        std::vector<std::string> protocols;
-        HttpHeaders headers;
-        int pingIntervalMs = 30000;
-    };
+    // Helpers
+    static Url parseUrl(const std::string& urlStr);
+    std::string buildHttpRequest(const HttpRequest& request, const Url& url);
+    std::unordered_map<std::string, std::string> parseJsonResponse(const HttpResponse& response);
+    std::string jsonToBody(const std::unordered_map<std::string, std::string>& data);
+
+    using WebSocketOptions = NexusForge::Networking::WebSocketOptions;
 
     // Convenience methods
     bool isOnline() const;
     std::string getUserAgent() const { return defaultUserAgent_; }
 
 private:
-    int defaultTimeout_ = 30000;
+    int timeoutMs_ = 30000;
     std::string defaultUserAgent_ = "NexusForge/1.0";
     bool verifySSL_ = true;
     std::string proxyHost_;
     int proxyPort_ = 0;
     std::string proxyUsername_;
     std::string proxyPassword_;
+    HttpHeaders defaultHeaders_;
     std::unordered_map<std::string, std::string>* cookieJar_ = nullptr;
 
     // Internal
+    std::string generateBoundary() const;
     HttpResponse executeRequest(const HttpRequest& request);
     std::string buildUrl(const HttpRequest& request);
     HttpHeaders buildHeaders(const HttpRequest& request);
@@ -246,74 +298,6 @@ private:
     void storeCookies(const HttpResponse& response);
     HttpResponse handleRedirect(const HttpRequest& request, const HttpResponse& response,
                                  int redirectCount);
-};
-
-// WebSocket client
-class WebSocketClient {
-public:
-    WebSocketClient();
-    ~WebSocketClient();
-
-    // Connection
-    bool connect(const std::string& url, const WebSocketOptions& options = {});
-    void disconnect(int closeCode = 1000, const std::string& reason = "");
-    bool isConnected() const { return connected_; }
-
-    // Messages
-    void send(const std::string& message);
-    void sendBinary(const std::vector<uint8_t>& data);
-
-    // Events
-    using MessageCallback = std::function<void(const std::string&)>;
-    using BinaryCallback = std::function<void(const std::vector<uint8_t>&)>;
-    using ErrorCallback = std::function<void(const std::string&)>;
-    using CloseCallback = std::function<void(int, const std::string&)>;
-    using ConnectCallback = std::function<void()>;
-
-    void onMessage(MessageCallback callback) { messageCallback_ = callback; }
-    void onBinary(BinaryCallback callback) { binaryCallback_ = callback; }
-    void onError(ErrorCallback callback) { errorCallback_ = callback; }
-    void onClose(CloseCallback callback) { closeCallback_ = callback; }
-    void onConnect(ConnectCallback callback) { connectCallback_ = callback; }
-
-    // Ping/Pong
-    void ping();
-    void setPingInterval(int intervalMs) { pingInterval_ = intervalMs; }
-
-private:
-    bool connected_ = false;
-    std::string url_;
-    WebSocketOptions options_;
-
-    MessageCallback messageCallback_;
-    BinaryCallback binaryCallback_;
-    ErrorCallback errorCallback_;
-    CloseCallback closeCallback_;
-    ConnectCallback connectCallback_;
-
-    int pingInterval_ = 30000;
-    std::string subprotocol_;
-
-    // Internal implementation
-    class Impl;
-    std::unique_ptr<Impl> impl_;
-};
-
-// URL utilities
-struct URL {
-    std::string protocol;
-    std::string host;
-    int port;
-    std::string path;
-    std::string query;
-    std::string fragment;
-    std::string username;
-    std::string password;
-
-    static URL parse(const std::string& urlString);
-    std::string toString() const;
-    std::unordered_map<std::string, std::string> parseQuery() const;
-    void setQuery(const std::unordered_map<std::string, std::string>& params);
 };
 
 // JSON helpers (simplified)
