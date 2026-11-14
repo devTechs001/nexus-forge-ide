@@ -14,6 +14,7 @@
 #include <memory>
 #include <thread>
 #include <future>
+#include <csignal>
 #include <exception>
 #include <functional>
 #include <string>
@@ -226,6 +227,19 @@ int NexusForgeApp::run(int argc, char* argv[]) {
 
         // Ready
         startupManager_.notifyProgress(StartupPhase::Ready, 1.0f);
+        if (mainWindow_) {
+            mainWindow_->show();
+        }
+
+        // Handle Ctrl+C / SIGTERM cleanly
+        auto signalHandler = [](int) {
+            NexusForgeApp::getInstance().getEngine().requestQuit();
+        };
+        std::signal(SIGINT, signalHandler);
+        std::signal(SIGTERM, signalHandler);
+
+        std::cout << APP_NAME << " " << APP_VERSION << " (" << APP_CODENAME
+                  << ") ready. Press Ctrl+C to exit." << std::endl;
 
         // Main Loop
         running_ = true;

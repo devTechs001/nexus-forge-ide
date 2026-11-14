@@ -121,6 +121,7 @@ void FontRenderer::drawText(const std::string& text, float x, float y, const Col
             cursorX += currentFont_->size * 0.5f * scale;
         }
     }
+    (void)cursorX;
     (void)cursorY;
 }
 

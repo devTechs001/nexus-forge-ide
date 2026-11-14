@@ -125,6 +125,13 @@ int NexusEngine::runMainLoop() {
 
         // Platform event processing
         Platform::PlatformAbstraction::processEvents();
+
+        // Pace loop (~60 Hz) to avoid busy-spinning CPU
+        auto frameElapsed = std::chrono::high_resolution_clock::now() - currentTime;
+        constexpr auto targetFrame = std::chrono::milliseconds(16);
+        if (frameElapsed < targetFrame) {
+            std::this_thread::sleep_for(targetFrame - frameElapsed);
+        }
     }
 
     return 0;
